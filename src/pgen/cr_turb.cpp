@@ -53,14 +53,14 @@ Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR ener
 int cooling_flag;
 
 // Assuming units of v = 10^5 cm/s, l = 1 pc, n = 1/cm^3, m = 1 m_p
-// therefore conversions are 
-const Real Heat    =  3.68962948e+01;
-const Real Lamb1   =  1.34671476e+07;
-const Real Lamb2   =  1.45740365e+01;
-const Real T1a     =  9.77320931e+02;
-const Real T1b     =  1.23815996e+01;
-const Real T2      =  7.59404778e-01;
-const Real T_floor =  8.25439976e-01;
+// therefore conversions are:
+const Real Heat    =  3.68962948e+01; // multiply by 5.420598489365e-28 for cgs erg/s
+const Real Lamb1   =  1.34671476e+07; // multiply by 5.420598489365e-28 for cgs erg cm^3 /s
+const Real Lamb2   =  1.45740365e+01; 
+const Real T1a     =  9.77320931e+02; // multiply by 1.21147513e+02 for K
+const Real T1b     =  1.23815996e+01; 
+const Real T2      =  7.59404778e-01; 
+const Real T_floor =  1.65087995e-01; 
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 

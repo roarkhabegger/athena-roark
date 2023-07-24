@@ -1,0 +1,91 @@
+<comment>
+problem   = Simulation with Turbulence, Cosmic Rays, CII+Ly Cooling function
+reference = 
+configure =  python3 configure.py --prob=cr_turb --nghost=2 --eos="adiabatic" -b -fft -cr -hdf5 -mpi -omp --mpiccmd=h5pcc --cflag='-DH5_HAVE_PARALLEL -lstdc++' --cxx='g++'
+
+# Assuming units of v = 10^5 cm/s = km/s, l = 1 pc, n = 1/cm^3, m = 1 m_p
+# With derived units t = 9.77792222e-01 Myr, T = 1.21147513e+02 K, 
+
+<job>
+problem_id = cr_turb      # problem ID: basename of output filenames
+
+<output1>
+file_type   = hst         # History data dump
+dt          = 0.01        # time increment between outputs
+
+<output2>
+file_type   = hdf5        # Binary data dump
+variable    = prim        # variables to be output
+dt          = 1.0         # time increment between outputs
+
+<output3>
+file_type   = rst         #Restart file
+dt          = 20.0     
+
+<time>                    # Time has units of 9.77792222e-01 Myr
+cfl_number   = 0.2        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim         = -1         # cycle limit
+tlim         = 1e2        # time limit
+integrator   = vl2        # time integration algorithm
+xorder       = 2          # order of spatial reconstruction
+ncycle_out   = 100        # interval for stdout summary info
+
+<mesh>
+nx1         = 128         # Number of zones in X1-direction
+x1min       = -50.0       # minimum value of X1
+x1max       =  50.0       # maximum value of X1 (unit: pc)
+ix1_bc      = periodic    # inner-X1 boundary flag
+ox1_bc      = periodic    # outer-X1 boundary flag
+
+nx2         = 128         # Number of zones in X2-direction
+x2min       = -50.0       # minimum value of X2
+x2max       =  50.0       # maximum value of X2 (unit: pc)
+ix2_bc      = periodic    # inner-X2 boundary flag
+ox2_bc      = periodic    # outer-X2 boundary flag
+
+nx3         = 128         # Number of zones in X3-direction
+x3min       = -50.0       # minimum value of X3
+x3max       =  50.0       # maximum value of X3 (unit: pc)
+ix3_bc      = periodic    # inner-X3 boundary flag
+ox3_bc      = periodic    # outer-X3 boundary flag
+
+num_threads = 2
+
+<meshblock>
+nx1        = 16
+nx2        = 16
+nx3        = 16
+
+<hydro>
+gamma           = 1.66666666666667    # gamma = C_p/C_v
+iso_sound_speed = 2.22545273          # equavalent to sqrt(p/d) for p=0.1, d=1 (From examples) (unit: km s^-1)
+                                      # For T_iso = 5000 K, iso_sound_speed = sqrt(kT/m) = 
+
+<cr>
+vmax         = 5.99584916e2     # Modified Speed of light in units of 1km/s. 2.998e5 is c
+sigmaPerp    = 5.99584916e6     # Perpendicular Diffusion Constant
+sigmaParl    = 2.39833966e-1    # Parallel Diffusion Constant
+src_flag     = 1                # CR Source terms in MHD equations (1=Yes, 0=No)
+vs_flag      = 1                # Streamin instability (1=Yes, 0=No)
+
+<turbulence>
+dedt       = 1.46130677e+03     # Energy injection rate (for driven) or Total energy (for decaying)
+nlow       = 1                  # cut-off wavenumber at low-k
+nhigh      = 3                  # cut-off wavenumber at high-k
+expo       = 0.0                # power-law exponent
+f_shear    = 0.0                # 0 is all compressive, 1 is all rotational
+tcorr      = 6.35472299e+01     # correlation time for OU process (both impulsive and continuous)
+dtdrive    = 0.01               # time interval between perturbation (impulsive)
+rseed      = 10203              # if non-negative, seed will be set by hand (slow PS generation)
+
+<problem>
+turb_flag  = 2        # 1 for decaying, 2 (impulsive) or 3 (continuous) for driven turbulence
+nH         = 3.0      # The density of each pixel (Unit: mH cm^-3)
+invbeta    = 0.2      # inverse of Plasma beta (B^2/(2P))
+angle      = 0.0      # The B-field angle to x-direction
+invbetaCR  = 0.2      # inverse of CR beta (P_cr/P)
+
+cooling    = 1
+crLoss     = 0.0      # CR Loss term
+
+
