@@ -147,7 +147,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         Real   ED   = pmb->phydro->w(IPR,k,j,i)/(g-1.0);
         Real E_ergs = ED * unit_E_in_cgs_ / nH;
         Real     T  =  E_ergs / (1.5*k_b);
-        Real remain_dt = dt;
+        Real remain_dt = dt*unit_time_in_s_;
         // sub-cycling method to evaluate the energy
         while (remain_dt > 0.0) {
             Real     T =  E_ergs / (1.5*k_b);
