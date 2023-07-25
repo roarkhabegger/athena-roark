@@ -52,16 +52,6 @@ Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR ener
 
 int cooling_flag;
 
-// Assuming units of v = 10^5 cm/s, l = 1 pc, n = 1/cm^3, m = 1 m_p
-// therefore conversions are:
-const Real Heat    =  3.68962948e+01; // multiply by 5.420598489365e-28 for cgs erg/s
-const Real Lamb1   =  1.34671476e+07; // multiply by 5.420598489365e-28 for cgs erg cm^3 /s
-const Real Lamb2   =  1.45740365e+01; 
-const Real T1a     =  9.77320931e+02; // multiply by 1.21147513e+02 for K
-const Real T1b     =  1.23815996e+01; 
-const Real T2      =  7.59404778e-01; 
-const Real T_floor =  1.65087995e-01; 
-
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
               AthenaArray<Real> &u_cr);
@@ -118,19 +108,45 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
                AthenaArray<Real> &cons_scalar){
+    
+  // Assuming units of v = 10^5 cm/s, l = 1 pc, n = 1/cm^3, m = 1 m_p
+  // therefore conversions are:
+  //         multiply by 5.420598489365e-28 for cgs erg/s
+  //         multiply by 5.420598489365e-28 for cgs erg cm^3 /s
+  //         multiply by 1.21147513e+02 for K
+  const Real Heat    =  3.68962948e+01 ;
+  const Real T_floor =  1.65087995e-01 ; 
+  // Inoue
+  const Real Lamb1_I   =  3.65000000e+05 ; // Note these are Lambda/Gamma Terms
+  const Real Lamb2_I   =  3.95000000e-01 ;
+  const Real T1a_I     =  9.77320931e+02 ;
+  const Real T1b_I     =  1.23815996e+01 ;
+  const Real T2_I      =  7.59404778e-01 ;
+  // Koyama
+  const Real Lamb1_K   =  1.00000000e+07 ;
+  const Real Lamb2_K   =  1.54093843e-01 ;
+  const Real T1a_K     =  9.47605092e+02 ;
+  const Real T1b_K     =  8.25439976e+00 ;
+  const Real T2_K      =  7.59404778e-01 ;
   Real pfloor = pmb->peos->GetPressureFloor();
   Real dfloor = pmb->peos->GetDensityFloor();
+
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
 #pragma omp simd
       for (int i=pmb->is; i<=pmb->ie; ++i) {
         Real d = prim(IDN,k,j,i);
         Real p = prim(IPR,k,j,i);
-        if ((d> dfloor) && (p> pfloor)) {
-            Real T = p/d;
-            Real Lamb = Lamb1*exp(-1*T1a/(T + T1b)) + Lamb2*exp(-1*T2/T);
-            Real dEdt = ((T > T_floor) ) ? d*( d*Lamb - Heat ) : -1*d*Heat;
-            cons(IEN,k,j,i) -= dEdt*dt;
+        if ((d> dfloor) && (p> pfloor) ) {
+          Real T = p/d;
+          Real Lamb = 0.0;
+          if (cooling_flag == 1) {
+            Lamb = Lamb1_I*exp(-1*T1a_I/(T + T1b_I)) + Lamb2_I*exp(-1*T2_I/T);
+          } else if (cooling_flag == 2) {
+            Lamb = Lamb1_K*exp(-1*T1a_K/(T + T1b_K)) + Lamb2_K*sqrt(T)*exp(-1*T2_K/T);
+          }
+          Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : -1*d*Heat;
+          cons(IEN,k,j,i) -= dEdt*dt;
         }
       }
     }

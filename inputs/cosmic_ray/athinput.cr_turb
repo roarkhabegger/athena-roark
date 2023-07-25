@@ -59,17 +59,17 @@ nx3        = 16
 <hydro>
 gamma           = 1.66666666666667    # gamma = C_p/C_v
 iso_sound_speed = 2.22545273          # equavalent to sqrt(p/d) for p=0.1, d=1 (From examples) (unit: km s^-1)
-                                      # For T_iso = 5000 K, iso_sound_speed = sqrt(kT/m) = 
+                                      # For T_iso = 5000 K, iso_sound_speed = sqrt(kT/m) = 6.42432866 sqrt(T/5000)
 
 <cr>
 vmax         = 5.99584916e2     # Modified Speed of light in units of 1km/s. 2.998e5 is c
 sigmaPerp    = 5.99584916e6     # Perpendicular Diffusion Constant
 sigmaParl    = 2.39833966e-1    # Parallel Diffusion Constant
 src_flag     = 1                # CR Source terms in MHD equations (1=Yes, 0=No)
-vs_flag      = 1                # Streamin instability (1=Yes, 0=No)
+vs_flag      = 1                # Streaming instability (1=Yes, 0=No)
 
 <turbulence>
-dedt       = 1.46130677e+03     # Energy injection rate (for driven) or Total energy (for decaying)
+dedt       = 1.46130677e+05     # Energy injection rate (for driven) or Total energy (for decaying)
 nlow       = 1                  # cut-off wavenumber at low-k
 nhigh      = 3                  # cut-off wavenumber at high-k
 expo       = 0.0                # power-law exponent
@@ -85,7 +85,7 @@ invbeta    = 0.2      # inverse of Plasma beta (B^2/(2P))
 angle      = 0.0      # The B-field angle to x-direction
 invbetaCR  = 0.2      # inverse of CR beta (P_cr/P)
 
-cooling    = 1
+cooling    = 1        # 0 for no Cooling function, 1 for Inoue 2006, 2 for Koyama 2002
 crLoss     = 0.0      # CR Loss term
 
 
