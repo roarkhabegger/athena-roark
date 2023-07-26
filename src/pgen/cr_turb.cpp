@@ -66,7 +66,7 @@ const Real Lamb2   =  1.45740365e+01;
 const Real T1a     =  9.77320931e+02; // multiply by 1.21147513e+02 for K
 const Real T1b     =  1.23815996e+01; 
 const Real T2      =  7.59404778e-01; 
-const Real T_floor =  1.65087995e-01; 
+const Real T_floor =  10.0; 
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
@@ -102,15 +102,14 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
   cooling_flag = pin->GetInteger("problem","cooling");
   if (cooling_flag != 0) {
-    // EnrollUserTimeStepFunction(CoolingTimeStep);
+    //nrollUserTimeStepFunction(CoolingTimeStep);
     EnrollUserExplicitSourceFunction(mySource);
   }
   
   Real unit_length_in_cm_  = pin->GetOrAddReal("problem","unit_length_in_cm_", 3.086e+18);
   Real unit_vel_in_cms_    = pin->GetOrAddReal("problem","unit_vel_in_cms_", 1.0e5);
   unit_density_in_nH_ = pin->GetOrAddReal("problem","unit_density_in_nH_", 1);
-  unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_
-                  * unit_vel_in_cms_ * unit_vel_in_cms_;
+  unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_ * unit_vel_in_cms_ * unit_vel_in_cms_;
   unit_time_in_s_ = unit_length_in_cm_/unit_vel_in_cms_;
   cooling_cfl = pin->GetOrAddReal("problem", "cooling_cfl", 0.1);
 
@@ -139,27 +138,49 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   Real dfloor = pmb->peos->GetDensityFloor();
   Real      g = pmb->peos->GetGamma();
   const Real k_b = 1.381e-16;
+  Real E, E_ergs, T, T0, dEDdt, dEdt;
+  AthenaArray<Real> &u = pmb->phydro->u;
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
 #pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        Real   nH   = pmb->phydro->u(IDN,k,j,i)*unit_density_in_nH_;
-        Real   ED   = pmb->phydro->w(IPR,k,j,i)/(g-1.0);
-        Real E_ergs = ED * unit_E_in_cgs_ / nH;
-        Real     T  =  E_ergs / (1.5*k_b);
-        Real remain_dt = dt*unit_time_in_s_;
+      for (int i=pmb->is; i<=pmb->ie; ++i) { 
+        Real   nH   = prim(IDN,k,j,i)*unit_density_in_nH_;
+        E = prim(IPR,k,j,i)/(g-1.0);
+        E_ergs  = E * unit_E_in_cgs_ / nH;
+        T       = T0 = E_ergs / (1.5*k_b);
+        Real remain_dt = dt;
+        Real tc = 0.0;
+        //std::cout<<"ED, Ergs, T, dEdt = "<<ED<<", "<<E_ergs<<", "<<T<<", "<<dEdt<<std::endl;
         // sub-cycling method to evaluate the energy
         while (remain_dt > 0.0) {
-            Real     T =  E_ergs / (1.5*k_b);
-            Real  dEdt = CoolingAndHeatingRate(T, nH);
-            Real tcool = std::min(remain_dt, cooling_cfl*std::abs(E_ergs)/dEdt);
+            E_ergs = E * unit_E_in_cgs_ / nH;
+            T      = E_ergs / (1.5*k_b);
+            if ( T < 0.0 ){
+              std::cout<<"T, T0 = "<< T <<", "<<T0<<std::endl;
+              std::stringstream msg;
+              msg << "### FATAL ERROR in pgen::mySource, T  < 0 " << std::endl;
+              throw std::runtime_error(msg.str().c_str());
+            }
+            dEdt = CoolingAndHeatingRate(T, nH);
+            dEDdt = (dEdt * nH / unit_E_in_cgs_) * unit_time_in_s_;
+            tc = std::min(remain_dt, cooling_cfl*std::abs(E/dEDdt));
 
-            E_ergs += dEdt*tcool;
-            remain_dt -= tcool;
+            E += dEDdt*tc;
+            if (E < pfloor/(g - 1.0))
+              E = pfloor/(g - 1.0);
+            remain_dt -= tc;
         }
         // Apply the final energy to the conserved variable
-        cons(IEN,k,j,i) = E_ergs*nH/unit_E_in_cgs_;
-
+        if (NON_BAROTROPIC_EOS) {
+          u(IEN,k,j,i) = E
+            + 0.5*( SQR(u(IM1,k,j,i)) + SQR(u(IM2,k,j,i)) + SQR(u(IM3,k,j,i))
+                )/u(IDN,k,j,i);
+          if (MAGNETIC_FIELDS_ENABLED) {
+            u(IEN,k,j,i) += 0.5*(
+                SQR(bcc(IB1,k,j,i)) + SQR(bcc(IB2,k,j,i)) + SQR(bcc(IB3,k,j,i)) );
+          }
+        }
+        
       }
     }
   }
@@ -169,13 +190,11 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 // Return the Cooling rate in cgs unit 
 // Input T in K, nH in  cm^-3
 Real CoolingAndHeatingRate(Real T, Real nH){
-  const Real Heating = 2e-26;
-  Real Cooling = 2e-26*nH*(1e7*exp(-1.184e5/(T+ 1e3)) + 1.4e-2*sqrt(T)*exp(-92/T)); 
-  Real dEdt = 0.0; 
-  if (T < T_floor){
-    dEdt = Heating;
-  }else{
-    dEdt = Heating - Cooling;
+  Real Heating = 2e-26;
+  Real Cooling = 2e-26*nH*(1e7*exp(-1.184e5/(T+ 1e3)) + 1.4e-2*sqrt(T)*exp(-92/T));
+  Real dEdt = Heating;
+  if (T > 20.0) {
+    dEdt = dEdt - Cooling;
   }
   return dEdt;
 }

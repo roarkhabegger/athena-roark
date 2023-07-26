@@ -96,7 +96,7 @@ void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out,  FaceFi
         Real &flx_IDN = dflx3D(IDN,k,j,i);
         Real u_d  = u_out(IDN,k,j,i) - wght*flx_IDN/vol(i);
 
-        if ( u_d < 0.0 || std::abs(dflx3D(IEN,k,j,i)/vol(i)*wght) > flx_max || std::abs(dflx3D(IDN,k,j,i)/vol(i)*wght)>flx_max){
+        if ( std::abs(dflx3D(IEN,k,j,i)/vol(i)*wght) > flx_max || std::abs(dflx3D(IDN,k,j,i)/vol(i)*wght)>flx_max){
           FirstOrderFluxes( w, b, bcc, i, j, k, i+1, j+1, k+1);
 
           //Apply the flux correction to the pixel
