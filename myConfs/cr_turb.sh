@@ -1,0 +1,13 @@
+python3 configure.py \
+ --prob=cr_turb \
+ --nghost=2 \
+ --eos="adiabatic" \
+ -b \
+ -fft \
+ -cr \
+ -hdf5 \
+ -mpi \
+ -omp \
+ --mpiccmd=h5pcc \
+ --cflag='-DH5_HAVE_PARALLEL -lstdc++' \
+ --cxx='g++'

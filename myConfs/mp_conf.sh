@@ -1,0 +1,14 @@
+python3 configure.py \
+ --prob=MultiPhase \
+ --nghost=2 \
+ --eos="isothermal" \
+ -b \
+ -fft \
+ -cr \
+ -hdf5 \
+ -h5double \
+ -mpi \
+ -omp \
+ --mpiccmd=h5pcc \
+ --cflag='-DH5_HAVE_PARALLEL -lstdc++' \
+ --cxx='g++'
