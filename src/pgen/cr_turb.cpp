@@ -43,6 +43,8 @@ namespace {
   Real unit_E_in_cgs_;
   Real unit_time_in_s_;
   Real cooling_cfl;
+  Real v_max;
+  int sign(Real number);
 }
 
 //======================================================================================
@@ -112,6 +114,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_ * unit_vel_in_cms_ * unit_vel_in_cms_;
   unit_time_in_s_ = unit_length_in_cm_/unit_vel_in_cms_;
   cooling_cfl = pin->GetOrAddReal("problem", "cooling_cfl", 0.1);
+  v_max = pin->GetOrAddReal("problem", "v_max", 80.0);
 
   // turb_flag is initialzed in the Mesh constructor to 0 by default;
   // turb_flag = 1 for decaying turbulence
@@ -493,3 +496,29 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   }
 }
 
+
+void MeshBlock::UserWorkInLoop() {
+  //set velocity floors
+  for (int k=ks; k<=ke; k++) {
+    for (int j=js; j<=je; j++) {
+      for (int i=is; i<=ie; i++) {
+          Real& u_d  = phydro->u(IDN,k,j,i);
+          Real& u_m1 = phydro->u(IM1,k,j,i);
+          Real& u_m2 = phydro->u(IM2,k,j,i);
+          Real& u_m3 = phydro->u(IM3,k,j,i);
+
+          //v > vmax 
+          u_m1 = (std::abs(u_m1) > u_d*v_max) ? u_d*sign(u_m1)*v_max : u_m1;
+          u_m2 = (std::abs(u_m2) > u_d*v_max) ? u_d*sign(u_m2)*v_max : u_m2;
+          u_m3 = (std::abs(u_m3) > u_d*v_max) ? u_d*sign(u_m3)*v_max : u_m3;
+      }
+    }
+  }
+  return;
+}
+
+namespace {
+int sign(Real number) {
+  return (number > 0) - (number < 0);
+}
+}
