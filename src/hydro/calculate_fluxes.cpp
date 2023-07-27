@@ -402,3 +402,124 @@ void Hydro::AddDiffusionFluxes() {
   }
   return;
 }
+
+//----------------------------------------------------------------------------------------
+//! \fn  void Hydro::FirstOrderFluxes
+//! \brief Calculate first-order fluxes for specific pixels
+
+void Hydro::FirstOrderFluxes(AthenaArray<Real> &w, FaceField &b, AthenaArray<Real> &bcc, 
+                             int is, int js, int ks, int ie, int je, int ke) {
+  MeshBlock *pmb = pmy_block;
+  int il, iu, jl, ju, kl, ku;
+
+  // b,bcc are passed as fn parameters becausse clients may want to pass different bcc1,
+  // b1, b2, etc., but the remaining members of the Field class are accessed directly via
+  // pointers because they are unique. NOTE: b, bcc are nullptrs if no MHD.
+#if MAGNETIC_FIELDS_ENABLED
+  // used only to pass to (up-to) 2x RiemannSolver() calls per dimension:
+  // x1:
+  AthenaArray<Real> &b1 = b.x1f, &w_x1f = pmb->pfield->wght.x1f,
+                  &e3x1 = pmb->pfield->e3_x1f, &e2x1 = pmb->pfield->e2_x1f;
+  // x2:
+  AthenaArray<Real> &b2 = b.x2f, &w_x2f = pmb->pfield->wght.x2f,
+                  &e1x2 = pmb->pfield->e1_x2f, &e3x2 = pmb->pfield->e3_x2f;
+  // x3:
+  AthenaArray<Real> &b3 = b.x3f, &w_x3f = pmb->pfield->wght.x3f,
+                  &e1x3 = pmb->pfield->e1_x3f, &e2x3 = pmb->pfield->e2_x3f;
+#endif
+  AthenaArray<Real> &flux_fc = scr1_nkji_;
+  AthenaArray<Real> &laplacian_all_fc = scr2_nkji_;
+
+  //--------------------------------------------------------------------------------------
+  // i-direction
+  AthenaArray<Real> &x1flux = flux[X1DIR];
+  // set the loop limits
+  jl = js, ju = je, kl = ks, ku = ke;
+  if (MAGNETIC_FIELDS_ENABLED) {
+    if (pmb->block_size.nx2 > 1) {
+      if (pmb->block_size.nx3 == 1) // 2D
+        jl = js-1, ju = je+1, kl = ks, ku = ke;
+      else // 3D
+        jl = js-1, ju = je+1, kl = ks-1, ku = ke+1;
+    }
+  }
+
+  for (int k=kl; k<=ku; ++k) {
+    for (int j=jl; j<=ju; ++j) {
+      // reconstruct L/R states
+      pmb->precon->DonorCellX1(k, j, is-1, ie+1, w, bcc, wl_, wr_);
+      pmb->pcoord->CenterWidth1(k, j, is, ie+1, dxw_);
+#if !MAGNETIC_FIELDS_ENABLED  // Hydro:
+      RiemannSolver(k, j, is, ie+1, IVX, wl_, wr_, x1flux, dxw_);
+#else  // MHD:
+      // x1flux(IBY) = (v1*b2 - v2*b1) = -EMFZ
+      // x1flux(IBZ) = (v1*b3 - v3*b1) =  EMFY
+      RiemannSolver(k, j, is, ie+1, IVX, b1, wl_, wr_, x1flux, e3x1, e2x1, w_x1f, dxw_);
+#endif
+    }
+  }
+
+  //--------------------------------------------------------------------------------------
+  // j-direction
+  if (pmb->pmy_mesh->f2) {
+    AthenaArray<Real> &x2flux = flux[X2DIR];
+    // set the loop limits
+    il = is-1, iu = ie+1, kl = ks, ku = ke;
+    if (MAGNETIC_FIELDS_ENABLED ) {
+      if (pmb->block_size.nx3 == 1) // 2D
+        kl = ks, ku = ke;
+      else // 3D
+        kl = ks-1, ku = ke+1;
+    }
+
+    for (int k=kl; k<=ku; ++k) {
+      // reconstruct the first row
+      pmb->precon->DonorCellX2(k, js-1, il, iu, w, bcc, wl_, wr_);
+      for (int j=js; j<=je+1; ++j) {
+        // reconstruct L/R states at j
+        pmb->precon->DonorCellX2(k, j, il, iu, w, bcc, wlb_, wr_);
+        pmb->pcoord->CenterWidth2(k, j, il, iu, dxw_);
+#if !MAGNETIC_FIELDS_ENABLED  // Hydro:
+        RiemannSolver(k, j, il, iu, IVY, wl_, wr_, x2flux, dxw_);
+#else  // MHD:
+        // flx(IBY) = (v2*b3 - v3*b2) = -EMFX
+        // flx(IBZ) = (v2*b1 - v1*b2) =  EMFZ
+        RiemannSolver(k, j, il, iu, IVY, b2, wl_, wr_, x2flux, e1x2, e3x2, w_x2f, dxw_);
+#endif
+        // swap the arrays for the next step
+        wl_.SwapAthenaArray(wlb_);
+      }
+    }
+  }
+
+  //--------------------------------------------------------------------------------------
+  // k-direction
+  if (pmb->pmy_mesh->f3) {
+    AthenaArray<Real> &x3flux = flux[X3DIR];
+    // set the loop limits
+    il = is, iu = ie, jl = js, ju = je;
+    if (MAGNETIC_FIELDS_ENABLED ) {
+      il = is-1, iu = ie+1, jl = js-1, ju = je+1;
+    }
+
+    for (int j=jl; j<=ju; ++j) { // this loop ordering is intentional
+      // reconstruct the first row
+      pmb->precon->DonorCellX3(ks-1, j, il, iu, w, bcc, wl_, wr_);
+      for (int k=ks; k<=ke+1; ++k) {
+        // reconstruct L/R states at k
+        pmb->precon->DonorCellX3(k, j, il, iu, w, bcc, wlb_, wr_);
+        pmb->pcoord->CenterWidth3(k, j, il, iu, dxw_);
+#if !MAGNETIC_FIELDS_ENABLED  // Hydro:
+        RiemannSolver(k, j, il, iu, IVZ, wl_, wr_, x3flux, dxw_);
+#else  // MHD:
+        // flx(IBY) = (v3*b1 - v1*b3) = -EMFY
+        // flx(IBZ) = (v3*b2 - v2*b3) =  EMFX
+        RiemannSolver(k, j, il, iu, IVZ, b3, wl_, wr_, x3flux, e2x3, e1x3, w_x3f, dxw_);
+#endif
+        // swap the arrays for the next step
+        wl_.SwapAthenaArray(wlb_);
+      }
+    }
+  }
+  return;
+}

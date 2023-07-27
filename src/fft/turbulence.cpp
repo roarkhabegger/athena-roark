@@ -312,7 +312,13 @@ void TurbulenceDriver::PowerSpectrum(std::complex<Real> *amp) {
           pcoeff = 0.0;
         } else {
           if ((kmag/dkx > nlow) && (kmag/dkx < nhigh)) {
-            pcoeff = 1.0/std::pow(kmag,(expo+2.0)/2.0);
+            if (expo != -1){
+              pcoeff = 1.0/std::pow(kmag,(expo+2.0)/2.0);
+            }else{
+              Real kc = 0.5*(nlow + nhigh);
+              pcoeff = std::abs(1.0 - 4.0*pow(kmag-kc,2)/pow(nhigh-nlow,2));
+              if (pcoeff < 0.0) pcoeff = 0.0;
+            }
           } else {
             pcoeff = 0.0;
           }
