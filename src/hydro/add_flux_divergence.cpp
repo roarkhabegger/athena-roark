@@ -36,17 +36,18 @@
 // (may rename to AddHydroFluxDivergence and AddScalarsFluxDivergence, if
 // the implementations remain completely independent / no inheritance is
 // used)
-void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out) {
+void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out,  FaceField &b,  AthenaArray<Real> &bcc, Real g) {
   MeshBlock *pmb = pmy_block;
   AthenaArray<Real> &x1flux = flux[X1DIR];
   AthenaArray<Real> &x2flux = flux[X2DIR];
   AthenaArray<Real> &x3flux = flux[X3DIR];
+
   int is = pmb->is; int js = pmb->js; int ks = pmb->ks;
   int ie = pmb->ie; int je = pmb->je; int ke = pmb->ke;
+  const Real flx_max = 1e5;
   AthenaArray<Real> &x1area = x1face_area_, &x2area = x2face_area_,
                  &x2area_p1 = x2face_area_p1_, &x3area = x3face_area_,
-                 &x3area_p1 = x3face_area_p1_, &vol = cell_volume_, &dflx = dflx_;
-
+                 &x3area_p1 = x3face_area_p1_, &vol = cell_volume_, &dflx3D = dflx3D_;
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
       // calculate x1-flux divergence
@@ -54,7 +55,7 @@ void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out) {
       for (int n=0; n<NHYDRO; ++n) {
 #pragma omp simd
         for (int i=is; i<=ie; ++i) {
-          dflx(n,i) = (x1area(i+1)*x1flux(n,k,j,i+1) - x1area(i)*x1flux(n,k,j,i));
+          dflx3D(n,k,j,i) = (x1area(i+1)*x1flux(n,k,j,i+1) - x1area(i)*x1flux(n,k,j,i));
         }
       }
 
@@ -65,7 +66,7 @@ void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out) {
         for (int n=0; n<NHYDRO; ++n) {
 #pragma omp simd
           for (int i=is; i<=ie; ++i) {
-            dflx(n,i) += (x2area_p1(i)*x2flux(n,k,j+1,i) - x2area(i)*x2flux(n,k,j,i));
+            dflx3D(n,k,j,i) += (x2area_p1(i)*x2flux(n,k,j+1,i) - x2area(i)*x2flux(n,k,j,i));
           }
         }
       }
@@ -77,24 +78,58 @@ void Hydro::AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out) {
         for (int n=0; n<NHYDRO; ++n) {
 #pragma omp simd
           for (int i=is; i<=ie; ++i) {
-            dflx(n,i) += (x3area_p1(i)*x3flux(n,k+1,j,i) - x3area(i)*x3flux(n,k,j,i));
+            dflx3D(n,k,j,i) += (x3area_p1(i)*x3flux(n,k+1,j,i) - x3area(i)*x3flux(n,k,j,i));
           }
         }
       }
+    }
+  }
 
+// first order flux correction (K. W. HO @UW-Madison/LANL, 19 Jul 2023)
+// not a good one but it works
+  for (int k=ks; k<=ke; ++k) {
+    for (int j=js; j<=je; ++j) {
+      // check if density flux is too huge and apply the first order flux correction
+      // Caution : any first-flux correction would causing injection of net momentum in the system
+      pmb->pcoord->CellVolume(k, j, is, ie, vol);
+      for (int i=is; i<=ie; ++i) {
+        Real &flx_IDN = dflx3D(IDN,k,j,i);
+        Real u_d  = u_out(IDN,k,j,i) - wght*flx_IDN/vol(i);
+
+        if ( std::abs(dflx3D(IEN,k,j,i)/vol(i)*wght) > flx_max || std::abs(dflx3D(IDN,k,j,i)/vol(i)*wght)>flx_max){
+          FirstOrderFluxes( w, b, bcc, i, j, k, i+1, j+1, k+1);
+
+          //Apply the flux correction to the pixel
+          pmb->pcoord->Face1Area(k, j, is, ie+1, x1area);
+          pmb->pcoord->Face2Area(k, j  , is, ie, x2area   );
+          pmb->pcoord->Face2Area(k, j+1, is, ie, x2area_p1);
+          pmb->pcoord->Face3Area(k  , j, is, ie, x3area   );
+          pmb->pcoord->Face3Area(k+1, j, is, ie, x3area_p1);
+          for (int n=0; n<NHYDRO; ++n) {
+            dflx3D(n,k,j,i)  = (x1area(i+1) *x1flux(n,k,j,i+1) - x1area(i)*x1flux(n,k,j,i));
+            dflx3D(n,k,j,i) += (x2area_p1(i)*x2flux(n,k,j+1,i) - x2area(i)*x2flux(n,k,j,i));
+            dflx3D(n,k,j,i) += (x3area_p1(i)*x3flux(n,k+1,j,i) - x3area(i)*x3flux(n,k,j,i));
+          }
+        }
+      }
+    }
+  }
+
+  for (int k=ks; k<=ke; ++k) {
+    for (int j=js; j<=je; ++j) {
       // update conserved variables
       pmb->pcoord->CellVolume(k, j, is, ie, vol);
       for (int n=0; n<NHYDRO; ++n) {
 #pragma omp simd
         for (int i=is; i<=ie; ++i) {
-          u_out(n,k,j,i) -= wght*dflx(n,i)/vol(i);
+          u_out(n,k,j,i) -= wght*dflx3D(n,k,j,i)/vol(i); 
         }
-      }
+      } 
     }
   }
+
   return;
 }
-
 
 //----------------------------------------------------------------------------------------
 //! \fn  void Hydro::AddFluxDivergence_STS
