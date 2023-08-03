@@ -155,7 +155,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   const Real k_b = 1.381e-16;
   Real E, E_ergs, T, T0, dEDdt, dEdt;
   AthenaArray<Real> &u = cons;
-<<<<<<< HEAD
 
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
