@@ -17,6 +17,7 @@
 // C++ headers
 #include <algorithm>  // min
 #include <cmath>      // sqrt
+#include <cfloat>  
 #include <fstream>
 #include <iostream>   // endl
 #include <sstream>    // stringstream
@@ -38,40 +39,14 @@
 #include "../mesh/mesh.hpp"
 #include "../parameter_input.hpp"
 
-namespace {
-  Real unit_density_in_nH_;
-  Real unit_E_in_cgs_;
-  Real unit_time_in_s_;
-  Real cooling_cfl;
-  Real v_max;
-  int sign(Real number);
-}
 
 //======================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
-//  \brief cosmic ray modified turbulence with radiative cooling
+//  \brief cosmic ray diffusion test
 //======================================================================================
 
+static Real sigma = 1.e3;
 
-Real sigmaParl, sigmaPerp; //CR diffusion 
-                           //decouple parallel (to local B field) and perpendicular diffusion coefficients
-Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR energy
-             // can be useful to give a decay to CR energy during turbulent driving
-
-int cooling_flag;
-
-const Real T_Floor_KW =  10.0; 
-
-void CRSource(MeshBlock *pmb, const Real time, const Real dt,
-                const AthenaArray<Real> &prim, FaceField &b, 
-              AthenaArray<Real> &u_cr);
-
-void mySource(MeshBlock *pmb, const Real time, const Real dt,
-               const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-               const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-               AthenaArray<Real> &cons_scalar);
-
-Real CoolingAndHeatingRate(Real T, Real nH);              
 
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
@@ -80,192 +55,19 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
     pcr->EnrollOpacityFunction(Diffusion);
-    bool lossFlag = (pin->GetOrAddReal("problem","crLoss",0.0) > 0.0);
-    if (lossFlag) {
-        pcr->EnrollUserCRSource(CRSource);
-    }
   }
-}
-
-void Mesh::InitUserMeshData(ParameterInput *pin) {
-  if(CR_ENABLED){
-    //Load CR Variables
-    Real vmax = pin->GetReal("cr","vmax") ;
-    Real kappaPerp = pin->GetOrAddReal("problem","kappaPerp",9.943153210629e4);
-    Real kappaParl = pin->GetOrAddReal("problem","kappaParl",9.943153210629e-4);
-    sigmaPerp = vmax/(3*kappaPerp);
-    sigmaParl = vmax/(3*kappaParl);
-    crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
-  }
-  cooling_flag = pin->GetInteger("problem","cooling");
-  if (cooling_flag != 0) {
-    //EnrollUserTimeStepFunction(CoolingTimeStep);
-    EnrollUserExplicitSourceFunction(mySource);
-  }
-  
-  Real unit_length_in_cm_  = pin->GetOrAddReal("problem","unit_length_in_cm_", 3.086e+18);
-  Real unit_vel_in_cms_    = pin->GetOrAddReal("problem","unit_vel_in_cms_", 1.0e5);
-  unit_density_in_nH_ = pin->GetOrAddReal("problem","unit_density_in_nH_", 1);
-  unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_ * unit_vel_in_cms_ * unit_vel_in_cms_;
-  unit_time_in_s_ = unit_length_in_cm_/unit_vel_in_cms_;
-  cooling_cfl = pin->GetOrAddReal("problem", "cooling_cfl", 0.1);
-  v_max = pin->GetOrAddReal("problem", "v_max", 80.0);
-
-  // turb_flag is initialzed in the Mesh constructor to 0 by default;
-  // turb_flag = 1 for decaying turbulence
-  // turb_flag = 2 for driven turbulence
-  turb_flag = pin->GetInteger("problem","turb_flag");
-  if (turb_flag != 0) {
-#ifndef FFT
-    std::stringstream msg;
-    msg << "### FATAL ERROR in TurbulenceDriver::TurbulenceDriver" << std::endl
-        << "non zero Turbulence flag is set without FFT!" << std::endl;
-    throw std::runtime_error(msg.str().c_str());
-    return;
-#endif
-  }
-  return;
-}
-
-// sub-cycling method for computing the cooling time step
-void mySource(MeshBlock *pmb, const Real time, const Real dt,
-               const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-               const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-               AthenaArray<Real> &cons_scalar){
-    
-  // Assuming units of v = 10^5 cm/s, l = 1 pc, n = 1/cm^3, m = 1 m_p
-  // therefore conversions are:
-  //         multiply by 5.420598489365e-28 for cgs erg/s
-  //         multiply by 5.420598489365e-28 for cgs erg cm^3 /s
-  //         multiply by 1.21147513e+02 for K
-  const Real Heat    =  3.68962948e+01 ;
-  const Real T_floor =  1.65087995e-01 ; 
-  // Inoue
-  const Real Lamb1_I   =  3.65000000e+05 ; // Note these are Lambda/Gamma Terms
-  const Real Lamb2_I   =  3.95000000e-01 ;
-  const Real T1a_I     =  9.77320931e+02 ;
-  const Real T1b_I     =  1.23815996e+01 ;
-  const Real T2_I      =  7.59404778e-01 ;
-  // Koyama
-  const Real Lamb1_K   =  1.00000000e+07 ;
-  const Real Lamb2_K   =  1.54093843e-01 ;
-  const Real T1a_K     =  9.47605092e+02 ;
-  const Real T1b_K     =  8.25439976e+00 ;
-  const Real T2_K      =  7.59404778e-01 ;
-  Real pfloor = pmb->peos->GetPressureFloor();
-  Real dfloor = pmb->peos->GetDensityFloor();
-  Real      g = pmb->peos->GetGamma();
-  const Real k_b = 1.381e-16;
-  Real E, E_ergs, T, T0, dEDdt, dEdt;
-  AthenaArray<Real> &u = cons;
-
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-#pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        Real d = prim(IDN,k,j,i);
-        Real p = prim(IPR,k,j,i);
-
-        if ((d> dfloor) && (p> pfloor) ) {
-          if (cooling_flag != 2){ 
-            Real T = p/d;
-            Real Lamb = 0.0;
-            if (cooling_flag == 1) {
-              Lamb = Lamb1_I*exp(-1*T1a_I/(T + T1b_I)) + Lamb2_I*exp(-1*T2_I/T);
-            } else if (cooling_flag == 2) {
-              Lamb = Lamb1_K*exp(-1*T1a_K/(T + T1b_K)) + Lamb2_K*sqrt(T)*exp(-1*T2_K/T);
-            }
-            Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : -1*d*Heat;
-            cons(IEN,k,j,i) -= dEdt*dt;
-          } else {
-            Real   nH   = prim(IDN,k,j,i)*unit_density_in_nH_;
-            E = prim(IPR,k,j,i)/(g-1.0);
-            E_ergs  = E * unit_E_in_cgs_ / nH;
-            T       = T0 = E_ergs / (1.5*k_b);
-            Real remain_dt = dt;
-            Real tc = 0.0;
-            //std::cout<<"ED, Ergs, T, dEdt = "<<ED<<", "<<E_ergs<<", "<<T<<", "<<dEdt<<std::endl;
-            // sub-cycling method to evaluate the energy
-            while (remain_dt > 0.0) {
-              E_ergs = E * unit_E_in_cgs_ / nH;
-              T      = E_ergs / (1.5*k_b);
-              if ( T < 0.0 ){
-                std::cout<<"T, T0 = "<< T <<", "<<T0<<std::endl;
-                std::stringstream msg;
-                msg << "### FATAL ERROR in pgen::mySource, T  < 0 " << std::endl;
-                throw std::runtime_error(msg.str().c_str());
-              }
-              dEdt = CoolingAndHeatingRate(T, nH);
-              dEDdt = (dEdt * nH / unit_E_in_cgs_) * unit_time_in_s_;
-              tc = std::min(remain_dt, cooling_cfl*std::abs(E/dEDdt));
-
-              E += dEDdt*tc;
-              if (E < pfloor/(g - 1.0))
-                E = pfloor/(g - 1.0);
-              remain_dt -= tc;
-            }
-            // Apply the final energy to the conserved variable
-            if (NON_BAROTROPIC_EOS) {
-              u(IEN,k,j,i) = E
-                + 0.5*( SQR(u(IM1,k,j,i)) + SQR(u(IM2,k,j,i)) + SQR(u(IM3,k,j,i))
-                    )/u(IDN,k,j,i);
-              if (MAGNETIC_FIELDS_ENABLED) {
-                u(IEN,k,j,i) += 0.5*(
-                    SQR(bcc(IB1,k,j,i)) + SQR(bcc(IB2,k,j,i)) + SQR(bcc(IB3,k,j,i)) );
-              }
-            }
-          }
-        }
-        
-      }
-    }
-  }
-  return;
-}
-
-// Return the Cooling rate in cgs unit 
-// Input T in K, nH in  cm^-3
-Real CoolingAndHeatingRate(Real T, Real nH){
-  Real Heating = 2e-26;
-  Real Cooling = 2e-26*nH*(1e7*exp(-1.184e5/(T+ 1e3)) + 1.4e-2*sqrt(T)*exp(-92/T));
-  Real dEdt = Heating;
-  if (T > 20.0) {
-    dEdt = dEdt - Cooling;
-  }
-  return dEdt;
-}
-
-void CRSource(MeshBlock *pmb, const Real time, const Real dt,
-                const AthenaArray<Real> &prim, FaceField &b, 
-                AthenaArray<Real> &u_cr){ 
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-  #pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        //CRLoss Term
-        u_cr(CRE,k,j,i) -= crLoss*dt*u_cr(CRE,k,j,i);
-      }
-    }
-  }
-  return;
 }
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   // read in the mean velocity, diffusion coefficient
-  const Real nH = pin->GetReal("problem", "nH"); //density
-  const Real iso_cs = pin->GetReal("hydro", "iso_sound_speed");
-  const Real pres = nH*SQR(iso_cs);
-  const Real gm1  = peos->GetGamma() - 1.0;
-  
-  const Real invbeta = pin->GetOrAddReal("problem","invbeta",0.0);
-  const Real b0 = sqrt(2*invbeta*pres); //mean field strength
-  const Real angle = (PI/180.0)*pin->GetOrAddReal("problem","angle",0.0);
+  Real vmax = pcr->vmax;
+  Real kappa = pin->GetOrAddReal("problem","kappa",1.e-3);
+  sigma = vmax/(3*kappa);
+  Real b0 = pin->GetOrAddReal("problem","b0",1);
+  Real p0 = pin->GetOrAddReal("problem","p0",1);
 
-  const Real invbetaCR = pin->GetOrAddReal("problem","invbetaCR",0.0);
-  const Real crp = pres*invbetaCR;
 
   Real gamma = peos->GetGamma();
-    
   // Initialize hydro variable
   for(int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
@@ -274,20 +76,22 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real x2 = pcoord->x2v(j);
         Real x3 = pcoord->x3v(k);
 
-        phydro->u(IDN, k, j, i) = nH;
-        phydro->u(IM1, k, j, i) = 0.0;
-        phydro->u(IM2, k, j, i) = 0.0;
-        phydro->u(IM3, k, j, i) = 0.0;
-        //energy
+        Real dist_sq=x1*x1;
+
+        phydro->u(IDN,k,j,i) = 1.0;
+        phydro->u(IM1,k,j,i) = 0;
+        phydro->u(IM2,k,j,i) = 0;
+        phydro->u(IM3,k,j,i) = 0;
         if (NON_BAROTROPIC_EOS) {
-            phydro->u(IEN, k, j, i) = pres/gm1;
+          phydro->u(IEN,k,j,i) = p0/(gamma-1.0);
         }
 
         if (CR_ENABLED) {
-            pcr->u_cr(CRE,k,j,i) = 3*crp;
+            pcr->u_cr(CRE,k,j,i) = std::exp(-1*(dist_sq)/2);
             pcr->u_cr(CRF1,k,j,i) = 0.0;
             pcr->u_cr(CRF2,k,j,i) = 0.0;
             pcr->u_cr(CRF3,k,j,i) = 0.0;
+
         }
       }
     }
@@ -303,9 +107,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for(int k=0; k<nz3; ++k) {
       for(int j=0; j<nz2; ++j) {
         for(int i=0; i<nz1; ++i) {
-          pcr->sigma_diff(0,k,j,i) = sigmaParl;
-          pcr->sigma_diff(1,k,j,i) = sigmaPerp;
-          pcr->sigma_diff(2,k,j,i) = sigmaPerp;
+          pcr->sigma_diff(0,k,j,i) = sigma;
+          pcr->sigma_diff(1,k,j,i) = FLT_MAX;
+          pcr->sigma_diff(2,k,j,i) = FLT_MAX;
         }
       }
     }
@@ -316,7 +120,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
-          pfield->b.x1f(k,j,i) = b0* std::cos(angle);
+          pfield->b.x1f(k,j,i) = b0;
         }
       }
     }
@@ -324,7 +128,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int k=ks; k<=ke; ++k) {
         for (int j=js; j<=je+1; ++j) {
           for (int i=is; i<=ie; ++i) {
-            pfield->b.x2f(k,j,i) = b0* std::sin(angle);
+            pfield->b.x2f(k,j,i) = 0.0;
           }
         }
       }
@@ -377,9 +181,9 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
     for(int j=jl; j<=ju; ++j) {
 #pragma omp simd
       for(int i=il; i<=iu; ++i) {
-        pcr->sigma_diff(0,k,j,i) = sigmaParl; //sigma_diff is defined with x0 coordinate parallel to local B field
-        pcr->sigma_diff(1,k,j,i) = sigmaPerp;
-        pcr->sigma_diff(2,k,j,i) = sigmaPerp;
+        pcr->sigma_diff(0,k,j,i) = sigma;
+        pcr->sigma_diff(1,k,j,i) = FLT_MAX;
+        pcr->sigma_diff(2,k,j,i) = FLT_MAX;
       }
     }
   }
@@ -392,6 +196,9 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   // b_angle[1]=cos_theta_b
   // b_angle[2]=sin_phi_b
   // b_angle[3]=cos_phi_b
+
+
+
 
   if (MAGNETIC_FIELDS_ENABLED) {
     //First, calculate B_dot_grad_Pc
@@ -527,31 +334,4 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
     }
   }
   }
-}
-
-
-void MeshBlock::UserWorkInLoop() {
-  //set velocity floors
-  for (int k=ks; k<=ke; k++) {
-    for (int j=js; j<=je; j++) {
-      for (int i=is; i<=ie; i++) {
-          Real& u_d  = phydro->u(IDN,k,j,i);
-          Real& u_m1 = phydro->u(IM1,k,j,i);
-          Real& u_m2 = phydro->u(IM2,k,j,i);
-          Real& u_m3 = phydro->u(IM3,k,j,i);
-
-          //v > vmax 
-          u_m1 = (std::abs(u_m1) > u_d*v_max) ? u_d*sign(u_m1)*v_max : u_m1;
-          u_m2 = (std::abs(u_m2) > u_d*v_max) ? u_d*sign(u_m2)*v_max : u_m2;
-          u_m3 = (std::abs(u_m3) > u_d*v_max) ? u_d*sign(u_m3)*v_max : u_m3;
-      }
-    }
-  }
-  return;
-}
-
-namespace {
-int sign(Real number) {
-  return (number > 0) - (number < 0);
-}
 }
