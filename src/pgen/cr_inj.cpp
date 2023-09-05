@@ -136,22 +136,29 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
-  // std::cout << "Temp Scale = " << T_scale << std::endl;
-  // std::cout << "v Scale    = " << v_scale << std::endl;
-  // std::cout << "e Scale    = " << e_scale << std::endl;
-  // std::cout << "B Scale    = " << B_scale << std::endl;
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if (rank == 0){
+    std::cout << "Temp Scale = " << T_scale << std::endl;
+    std::cout << "v Scale    = " << v_scale << std::endl;
+    std::cout << "e Scale    = " << e_scale << std::endl;
+    std::cout << "B Scale    = " << B_scale << std::endl;
+  }
+
 
   if(CR_ENABLED){
     //Load CR Variables
     Real vmax = pin->GetReal("cr","vmax") ;
-    Real kappaPerp = pin->GetOrAddReal("problem","kappaPerp",1.0e0)/(v_scale*l_scale) ;
-    Real kappaParl = pin->GetOrAddReal("problem","kappaParl",1.0e0)/(v_scale*l_scale) ;
+    Real kappaPerp = pin->GetOrAddReal("problem","kappaPerp",3e28)/(v_scale*l_scale) ;
+    Real kappaParl = pin->GetOrAddReal("problem","kappaParl",3e28)/(v_scale*l_scale) ;
     sigmaPerp = vmax/(3*kappaPerp);
     sigmaParl = vmax/(3*kappaParl);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
-    std::cout << "Vmax = " << vmax / (c / (v_scale)) << " c" << std::endl;
-    std::cout << "sigmaParl = " << sigmaParl << std::endl;
-    std::cout << "sigmaPerp = " << sigmaPerp << std::endl;
+    if (rank == 0){
+      std::cout << "Vmax = " << vmax / (c / (v_scale)) << " c" << std::endl;
+      std::cout << "sigmaParl = " << sigmaParl << std::endl;
+      std::cout << "sigmaPerp = " << sigmaPerp << std::endl;
+    }
   }
   cooling_flag = pin->GetInteger("problem","cooling");
 
@@ -162,9 +169,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_cr = pin->GetOrAddReal("problem","Esn_cr",0.1) * 1.0e51/(e_scale*pow(l_scale,3));
 
-  std::cout << "Ecr   = " << Esn_cr << std::endl;
-  std::cout << "Eth   = " << Esn_th << std::endl;
-
+  if (rank == 0){
+    std::cout << "Ecr   = " << Esn_cr << std::endl;
+    std::cout << "Eth   = " << Esn_th << std::endl;
+  }
   HSE_CR_Forcing = pin->GetOrAddInteger("problem","HSE_CR",0);
   HSE_Gamma= pin->GetOrAddInteger("problem","HSE_G",0);
   uniformInj = pin->GetOrAddInteger("problem","uniformInj",0);
@@ -177,33 +185,29 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
     unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine gen(seed1);
-    for (int m =1; m<=5; m++){
-      phasesX[m-1] = distPhase(gen);
-      phasesY[m-1] = distPhase(gen);
-      amplitudes[m-1] = distAmp(gen);
+    if (rank == 0){
+      for (int m =1; m<=5; m++){
+        phasesX[m-1] = distPhase(gen);
+        phasesY[m-1] = distPhase(gen);
+        amplitudes[m-1] = distAmp(gen);
+      }
+
     }
+    MPI_Bcast(&phasesX[0],5,MPI_DOUBLE,0,MPI_COMM_WORLD);
+    MPI_Bcast(&phasesY[0],5,MPI_DOUBLE,0,MPI_COMM_WORLD);
+    MPI_Bcast(&amplitudes[0],5,MPI_DOUBLE,0,MPI_COMM_WORLD);
+
   }
 
-  // MHD boundary conditions
-  if (pin->GetString("mesh","ix2_bc")=="user"){
-    EnrollUserBoundaryFunction(inner_x2, DiodeInnerX2);
-  }
-  if (pin->GetString("mesh","ox2_bc")=="user"){
-    EnrollUserBoundaryFunction(outer_x2, DiodeOuterX2);
-  }
-  if(CR_ENABLED){
-    //CR Boundary conditions
-    if (pin->GetString("mesh","ix2_bc")=="user")
-      EnrollUserCRBoundaryFunction(inner_x2, DiodeCRInnerX2);
-    if (pin->GetString("mesh","ox2_bc")=="user")
-      EnrollUserCRBoundaryFunction(outer_x2, DiodeCROuterX2);
-  }
-
+  
   return;
 }
 
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  Mesh *pm = pmy_mesh; 
   Real myGamma = pin->GetReal("hydro","gamma");
 
   // Load variables
@@ -230,14 +234,15 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
   nGrav = HStar/h;
 
-  std::cout << " Dens = " << dens0 << std::endl;
-  std::cout << " Pres = " << pres0 << std::endl;
-  std::cout << " Sig  = " << SigmaStar << std::endl;
-  std::cout << " Grav = " << g0 << std::endl;
-  std::cout << " h = " << h << std::endl;
-  std::cout << " n = " << nGrav << std::endl;
-
-  Real maxErr = FLT_MIN;
+  if (rank == 0){
+    std::cout << " Dens = " << dens0 << std::endl;
+    std::cout << " Pres = " << pres0 << std::endl;
+    std::cout << " Sig  = " << SigmaStar << std::endl;
+    std::cout << " Grav = " << g0 << std::endl;
+    std::cout << " h = " << h << std::endl;
+    std::cout << " n = " << nGrav << std::endl;
+  }
+  // Real maxErr = FLT_MIN;
 
   // Initialize hydro variable
   for(int k=ks; k<=ke; ++k) {
@@ -250,7 +255,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real gravity = -1*g0*tanh(x2/(nGrav*h));
         Real dz = pcoord->dx2v(j);
         Real dPdz =  (pres0*pow(cosh((x2 + dz)/(nGrav*h)),-1.0*nGrav) - pressure) / dz;
-        maxErr = fmax(fabs( (dPdz*(1+alpha+beta) - density * gravity )/(pres0 ) ),maxErr);
+        // maxErr = fmax(fabs( (dPdz*(1+alpha+beta) - density * gravity )/(pres0 ) ),maxErr);
 
         phydro->u(IDN, k, j, i) = density;
         phydro->u(IM1, k, j, i) = 0.0;
@@ -264,10 +269,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           Real x1 = pcoord->x1v(i);
           Real x3 = pcoord->x3v(k);
           Real pert = 0.0;
+          Real x1scale = (pm->mesh_size.x1max - pm->mesh_size.x1min)/2.0;
+          Real x3scale = (pm->mesh_size.x3max - pm->mesh_size.x3min)/2.0;
           for (int m =1; m<=5; m++){
-            pert += amplitudes[m-1]*sin(M_PI*m*x1+phasesX[m-1])*sin(M_PI*m*x3+phasesY[m-1]);
+            pert += amplitudes[m-1]*sin(M_PI*m*x1/x1scale+phasesX[m-1])*sin(M_PI*m*x3/x3scale+phasesY[m-1]);
           }
-          pert *= 1e-3;
+          pert *= 1e-2;
           phydro->u(IDN,k,j,i) += density*pert;
         }
 
@@ -283,7 +290,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       }
     }
   }
-  std::cout << " Max HSE Err = " << maxErr << std::endl;
+  // std::cout << " Max HSE Err = " << maxErr << std::endl;
   //Need to set opactiy sigma in the ghost zones
   if (CR_ENABLED) {
   // Default values are 1/3
@@ -386,9 +393,9 @@ void Mesh::UserWorkInLoop(void)
       // std::exponential_distribution<double> distDt(SNRate);
       std::poisson_distribution<int> distN(SNRate*dt);
 
-      std::uniform_real_distribution<double> distx1(mesh_size.x1min,mesh_size.x1max);
-      std::uniform_real_distribution<double> distx2(-1*injH,injH);
-      std::uniform_real_distribution<double> distx3(mesh_size.x3min,mesh_size.x3max);
+      std::uniform_real_distribution<double> distx1(mesh_size.x1min+injL/2,mesh_size.x1max - x1d-injL/2);
+      std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
+      std::uniform_real_distribution<double> distx3(mesh_size.x3min+injL/2,mesh_size.x3max - x3d-injL/2);
 
       unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
       std::default_random_engine gen(seed1);
@@ -398,7 +405,11 @@ void Mesh::UserWorkInLoop(void)
         X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
         X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
         X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
+        std::cout << "X1: " << X1Inj[n-1] << std::endl;
+        std::cout << "X2: " << X2Inj[n-1] << std::endl;
+        std::cout << "X3: " << X3Inj[n-1] << std::endl;
       }
+
     } 
     
     //MPI_Bcast(&lastInjT,1,MPI_DOUBLE,0,MPI_COMM_WORLD);
@@ -527,9 +538,9 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           Real dx3 = pmb->pcoord->dx3v(k+1);
           Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
           for (int m = 0 ; m < NInjs; ++m) {
-            Real x10   = X1Inj.at(m);
-            Real x20   = X2Inj.at(m);
-            Real x30   = X3Inj.at(m);
+            Real x10   = X1Inj[m];
+            Real x20   = X2Inj[m];
+            Real x30   = X3Inj[m];
             Real ax = (x1 - x10 - dx1/2)/injL;
             Real bx = (x1 - x10 + dx1/2)/injL;
             Real ay = (x2 - x20 - dx2/2)/injL;
@@ -796,151 +807,3 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   }
 }
 
-
-//----------------------------------------------------------------------------------------
-//! \fn void ProjectPressureInnerX2()
-//  \brief  Pressure is integated into ghost cells to improve hydrostatic eqm
-
-void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh)
-{
-  for (int k=kl; k<=ku; ++k) {
-    for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-      for (int i=il; i<=iu; ++i) {
-        prim(IDN,k,jl-j,i) = dfloor;
-        prim(IPR,k,jl-j,i) = pfloor;
-        prim(IVX,k,jl-j,i) = 0.0;
-        prim(IVY,k,jl-j,i) = 0.0;
-        prim(IVZ,k,jl-j,i) = 0.0;
-      }
-    }
-  }
-  // copy face-centered magnetic fields into ghost zones, reflecting b2
-  if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(jl-j),i) =  0.0;
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(jl-j),i) = 0.0;
-        }
-      }
-    }
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(jl-j),i) = 0.0;
-        }
-      }
-    }
-  }
-  return;
-}
-
-//----------------------------------------------------------------------------------------
-//! \fn void ProjectPressureOuterX2()
-//  \brief  Pressure is integated into ghost cells to improve hydrostatic eqm
-
-void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh)
-{
-  for (int k=kl; k<=ku; ++k) {
-    for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-      for (int i=il; i<=iu; ++i) {
-        prim(IDN,k,ju+j,i) = dfloor;
-        prim(IPR,k,ju+j,i) = pfloor;
-        prim(IVX,k,ju+j,i) = 0.0;
-        prim(IVY,k,ju+j,i) = 0.0;
-        prim(IVZ,k,ju+j,i) = 0.0;
-      }
-    }
-  }
-  // copy face-centered magnetic fields into ghost zones, reflecting b2
-  if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(ju+j),i) =  0.0;
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=2; j<=ngh+1; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(ju+j),i) = 0.0;
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(ju+j),i) =  0.0;
-        }
-      }
-    }
-
-  }
-  return;
-}
-
-//======================================================================================
-// CR Boundary Conditions
-//======================================================================================
-void DiodeCRInnerX2(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
-    const AthenaArray<Real> &w, FaceField &b,
-    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
-    int js, int je, int ks, int ke, int ngh)
-{
-  if(CR_ENABLED){
-    for (int k=ks; k<=ke; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-        for (int i=is; i<=ie; ++i) {
-          u_cr(CRE,k,js-j,i) = 3.0*pfloor;
-          u_cr(CRF1,k,js-j,i) = 0.0;
-          u_cr(CRF2,k,js-j,i) = 0.0;
-          u_cr(CRF3,k,js-j,i) = 0.0;
-
-        }
-      }
-    }
-  }
-  return;
-}
-
-void DiodeCROuterX2(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
-    const AthenaArray<Real> &w, FaceField &b,
-    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
-    int js, int je, int ks, int ke, int ngh)
-{
-  if(CR_ENABLED){
-    for (int k=ks; k<=ke; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-        for (int i=is; i<=ie; ++i) {
-          u_cr(CRE,k,je+j,i) = 3.0*pfloor;
-          u_cr(CRF1,k,je+j,i) = 0.0;
-          u_cr(CRF2,k,je+j,i) = 0.0;
-          u_cr(CRF3,k,je+j,i) = 0.0;
-        }
-      }
-    }
-  }
-  return;
-}
