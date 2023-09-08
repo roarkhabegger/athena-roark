@@ -91,8 +91,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   if(CR_ENABLED){
     //Load CR Variables
     Real vmax = pin->GetReal("cr","vmax") ;
-    Real kappaPerp = pin->GetOrAddReal("problem","kappaPerp",9.943153210629e4);
-    Real kappaParl = pin->GetOrAddReal("problem","kappaParl",9.943153210629e-4);
+    Real kappaPerp = pin->GetOrAddReal("cr","kappaPerp",9.943153210629e-4);
+    Real kappaParl = pin->GetOrAddReal("cr","kappaParl",9.943153210629e4);
     sigmaPerp = vmax/(3*kappaPerp);
     sigmaParl = vmax/(3*kappaParl);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
