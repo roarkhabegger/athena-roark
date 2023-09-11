@@ -38,6 +38,14 @@
 #include "../mesh/mesh.hpp"
 #include "../parameter_input.hpp"
 
+namespace {
+  Real unit_density_in_nH_;
+  Real unit_E_in_cgs_;
+  Real unit_time_in_s_;
+  Real cooling_cfl;
+  Real v_max;
+  int sign(Real number);
+}
 
 //======================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
@@ -52,6 +60,8 @@ Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR ener
 
 int cooling_flag;
 
+const Real T_Floor_KW =  10.0; 
+
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
               AthenaArray<Real> &u_cr);
@@ -60,7 +70,8 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
                AthenaArray<Real> &cons_scalar);
-              
+
+Real CoolingAndHeatingRate(Real T, Real nH);              
 
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
@@ -79,15 +90,27 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   if(CR_ENABLED){
     //Load CR Variables
-    sigmaPerp = pin->GetReal("cr","sigmaPerp");
-    sigmaParl = pin->GetReal("cr","sigmaParl");
+    Real vmax = pin->GetReal("cr","vmax") ;
+    Real kappaPerp = pin->GetOrAddReal("cr","kappaPerp",9.943153210629e-4);
+    Real kappaParl = pin->GetOrAddReal("cr","kappaParl",9.943153210629e4);
+    sigmaPerp = vmax/(3*kappaPerp);
+    sigmaParl = vmax/(3*kappaParl);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
   }
   cooling_flag = pin->GetInteger("problem","cooling");
   if (cooling_flag != 0) {
-    // EnrollUserTimeStepFunction(CoolingTimeStep);
+    //EnrollUserTimeStepFunction(CoolingTimeStep);
     EnrollUserExplicitSourceFunction(mySource);
   }
+  
+  Real unit_length_in_cm_  = pin->GetOrAddReal("problem","unit_length_in_cm_", 3.086e+18);
+  Real unit_vel_in_cms_    = pin->GetOrAddReal("problem","unit_vel_in_cms_", 1.0e5);
+  unit_density_in_nH_ = pin->GetOrAddReal("problem","unit_density_in_nH_", 1);
+  unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_ * unit_vel_in_cms_ * unit_vel_in_cms_;
+  unit_time_in_s_ = unit_length_in_cm_/unit_vel_in_cms_;
+  cooling_cfl = pin->GetOrAddReal("problem", "cooling_cfl", 0.1);
+  v_max = pin->GetOrAddReal("problem", "v_max", 80.0);
+
   // turb_flag is initialzed in the Mesh constructor to 0 by default;
   // turb_flag = 1 for decaying turbulence
   // turb_flag = 2 for driven turbulence
@@ -104,6 +127,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   return;
 }
 
+// sub-cycling method for computing the cooling time step
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
@@ -130,6 +154,10 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   const Real T2_K      =  7.59404778e-01 ;
   Real pfloor = pmb->peos->GetPressureFloor();
   Real dfloor = pmb->peos->GetDensityFloor();
+  Real      g = pmb->peos->GetGamma();
+  const Real k_b = 1.381e-16;
+  Real E, E_ergs, T, T0, dEDdt, dEdt;
+  AthenaArray<Real> &u = cons;
 
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
@@ -137,21 +165,74 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
       for (int i=pmb->is; i<=pmb->ie; ++i) {
         Real d = prim(IDN,k,j,i);
         Real p = prim(IPR,k,j,i);
+
         if ((d> dfloor) && (p> pfloor) ) {
-          Real T = p/d;
-          Real Lamb = 0.0;
-          if (cooling_flag == 1) {
-            Lamb = Lamb1_I*exp(-1*T1a_I/(T + T1b_I)) + Lamb2_I*exp(-1*T2_I/T);
-          } else if (cooling_flag == 2) {
-            Lamb = Lamb1_K*exp(-1*T1a_K/(T + T1b_K)) + Lamb2_K*sqrt(T)*exp(-1*T2_K/T);
+          if (cooling_flag != 2){ 
+            Real T = p/d;
+            Real Lamb = 0.0;
+            if (cooling_flag == 1) {
+              Lamb = Lamb1_I*exp(-1*T1a_I/(T + T1b_I)) + Lamb2_I*exp(-1*T2_I/T);
+            } else if (cooling_flag == 2) {
+              Lamb = Lamb1_K*exp(-1*T1a_K/(T + T1b_K)) + Lamb2_K*sqrt(T)*exp(-1*T2_K/T);
+            }
+            Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : -1*d*Heat;
+            cons(IEN,k,j,i) -= dEdt*dt;
+          } else {
+            Real   nH   = prim(IDN,k,j,i)*unit_density_in_nH_;
+            E = prim(IPR,k,j,i)/(g-1.0);
+            E_ergs  = E * unit_E_in_cgs_ / nH;
+            T       = T0 = E_ergs / (1.5*k_b);
+            Real remain_dt = dt;
+            Real tc = 0.0;
+            //std::cout<<"ED, Ergs, T, dEdt = "<<ED<<", "<<E_ergs<<", "<<T<<", "<<dEdt<<std::endl;
+            // sub-cycling method to evaluate the energy
+            while (remain_dt > 0.0) {
+              E_ergs = E * unit_E_in_cgs_ / nH;
+              T      = E_ergs / (1.5*k_b);
+              if ( T < 0.0 ){
+                std::cout<<"T, T0 = "<< T <<", "<<T0<<std::endl;
+                std::stringstream msg;
+                msg << "### FATAL ERROR in pgen::mySource, T  < 0 " << std::endl;
+                throw std::runtime_error(msg.str().c_str());
+              }
+              dEdt = CoolingAndHeatingRate(T, nH);
+              dEDdt = (dEdt * nH / unit_E_in_cgs_) * unit_time_in_s_;
+              tc = std::min(remain_dt, cooling_cfl*std::abs(E/dEDdt));
+
+              E += dEDdt*tc;
+              if (E < pfloor/(g - 1.0))
+                E = pfloor/(g - 1.0);
+              remain_dt -= tc;
+            }
+            // Apply the final energy to the conserved variable
+            if (NON_BAROTROPIC_EOS) {
+              u(IEN,k,j,i) = E
+                + 0.5*( SQR(u(IM1,k,j,i)) + SQR(u(IM2,k,j,i)) + SQR(u(IM3,k,j,i))
+                    )/u(IDN,k,j,i);
+              if (MAGNETIC_FIELDS_ENABLED) {
+                u(IEN,k,j,i) += 0.5*(
+                    SQR(bcc(IB1,k,j,i)) + SQR(bcc(IB2,k,j,i)) + SQR(bcc(IB3,k,j,i)) );
+              }
+            }
           }
-          Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : -1*d*Heat;
-          cons(IEN,k,j,i) -= dEdt*dt;
         }
+        
       }
     }
   }
   return;
+}
+
+// Return the Cooling rate in cgs unit 
+// Input T in K, nH in  cm^-3
+Real CoolingAndHeatingRate(Real T, Real nH){
+  Real Heating = 2e-26;
+  Real Cooling = 2e-26*nH*(1e7*exp(-1.184e5/(T+ 1e3)) + 1.4e-2*sqrt(T)*exp(-92/T));
+  Real dEdt = Heating;
+  if (T > 20.0) {
+    dEdt = dEdt - Cooling;
+  }
+  return dEdt;
 }
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
@@ -312,9 +393,6 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   // b_angle[2]=sin_phi_b
   // b_angle[3]=cos_phi_b
 
-
-
-
   if (MAGNETIC_FIELDS_ENABLED) {
     //First, calculate B_dot_grad_Pc
     for(int k=kl; k<=ku; ++k) {
@@ -449,4 +527,10 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
     }
   }
   }
+}
+
+namespace {
+int sign(Real number) {
+  return (number > 0) - (number < 0);
+}
 }
