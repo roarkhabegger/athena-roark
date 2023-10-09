@@ -24,6 +24,8 @@
 #include <string>     // c_str()
 #include <random>     // distributions
 #include <cfloat>      // FLT_MAX
+#include <vector> 
+#include <chrono>
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -114,11 +116,11 @@ void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                             FaceField &b, Real time, Real dt,
                             int il, int iu, int jl, int ju, int kl, int ku, int ngh);
-
 //CR boundary conditions
 
 // vacuum at x2 bounds
-void DiodeCROuterX2(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
+void DiodeCROuterX2(
+    MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
     const AthenaArray<Real> &w, FaceField &b,
     AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
     int js, int je, int ks, int ke, int ngh);
@@ -144,8 +146,29 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     std::cout << "e Scale    = " << e_scale << std::endl;
     std::cout << "B Scale    = " << B_scale << std::endl;
   }
+  beta = pin->GetReal("problem","beta");
+  alpha = pin->GetReal("problem","alpha");
 
+  Real T0 = pin->GetReal("problem", "T0"); // now T is in K
+  Real n0 = pin->GetReal("problem", "n0"); // midplane particles per ccm
 
+  Real SigmaStar = pin->GetReal("problem","SigmaStar")*(M_sun/SQR(l_scale)); // in Msun / pc^2
+  Real HStar =pin->GetReal("problem","HStar") ;
+
+  Real gm1 = pin->GetReal("hydro","gamma") - 1;
+  
+  dens0 = n0;
+
+  pres0 = k_B*T0 *n0 / e_scale;
+
+  g0 = 2*PI*G * SigmaStar / (v_scale / t_scale);
+
+  h = pres0/(g0*dens0)*(1 + alpha + beta);
+
+  nGrav = HStar/h;
+
+  pfloor = pin->GetReal("hydro","pfloor");
+  dfloor = pin->GetReal("hydro","dfloor");
   if(CR_ENABLED){
     //Load CR Variables
     Real vmax = pin->GetReal("cr","vmax") ;
@@ -178,6 +201,16 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   uniformInj = pin->GetOrAddInteger("problem","uniformInj",0);
 
   EnrollUserExplicitSourceFunction(mySource);
+  
+  if (mesh_bcs[BoundaryFace::inner_x2] == BoundaryFlag::user) {
+      EnrollUserBoundaryFunction(BoundaryFace::inner_x2, DiodeInnerX2);
+      EnrollUserCRBoundaryFunction(BoundaryFace::inner_x2, DiodeCRInnerX2);
+  }
+
+  if (mesh_bcs[BoundaryFace::outer_x2] == BoundaryFlag::user) {
+    EnrollUserBoundaryFunction(BoundaryFace::outer_x2, DiodeOuterX2);
+    EnrollUserCRBoundaryFunction(BoundaryFace::outer_x2, DiodeCROuterX2);
+  } 
 
   if (uniformInj==1) {
     std::uniform_real_distribution<double> distPhase(-1*M_PI,M_PI);
@@ -211,28 +244,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   Real myGamma = pin->GetReal("hydro","gamma");
 
   // Load variables
-  
-  beta = pin->GetReal("problem","beta");
-  alpha = pin->GetReal("problem","alpha");
   Real angle = pin->GetReal("problem","angle");
-
   Real T0 = pin->GetReal("problem", "T0"); // now T is in K
   Real n0 = pin->GetReal("problem", "n0"); // midplane particles per ccm
 
   Real SigmaStar = pin->GetReal("problem","SigmaStar")*(M_sun/SQR(l_scale)); // in Msun / pc^2
   Real HStar =pin->GetReal("problem","HStar") ;
 
-  Real gm1 = peos->GetGamma() - 1;
-  
-  dens0 = n0;
-
-  pres0 = k_B*T0 *n0 / e_scale;
-
-  g0 = 2*PI*G * SigmaStar / (v_scale / t_scale);
-
-  h = pres0/(g0*dens0)*(1 + alpha + beta);
-
-  nGrav = HStar/h;
+  Real gm1 = pin->GetReal("hydro","gamma") - 1;
 
   if (rank == 0){
     std::cout << " Dens = " << dens0 << std::endl;
@@ -807,3 +826,168 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   }
 }
 
+
+
+//----------------------------------------------------------------------------------------
+//! \fn void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco,
+//!                             AthenaArray<Real> &prim, FaceField &b, Real time, Real dt,
+//!                             int il, int iu, int jl, int ju, int kl, int ku, int ngh)
+//! \brief set vacuum outside the simulation. 
+
+void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                            FaceField &b, Real time, Real dt,
+                            int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
+  for (int n=0; n<(NHYDRO); ++n) {
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+        if (n==(IPR)) {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(IPR,k,jl-j,i) = pfloor;
+          }
+        } else if (n==IDN) {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(n,k,jl-j,i) = dfloor;
+          }
+        } else {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(n,k,jl-j,i) = 0.0;
+          }
+        }
+      }
+    }
+  }
+
+  // zero face-centered magnetic fields 
+  if (MAGNETIC_FIELDS_ENABLED) {
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu+1; ++i) {
+          b.x1f(k,(jl-j),i) =  0.0;
+        }
+      }
+    }
+
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x2f(k,(jl-j),i) = 0.0;  
+        }
+      }
+    }
+
+    for (int k=kl; k<=ku+1; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x3f(k,(jl-j),i) =  0.0;
+        }
+      }
+    }
+  }
+
+  return;
+}
+void DiodeCRInnerX2(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
+    const AthenaArray<Real> &w, FaceField &b,
+    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
+    int js, int je, int ks, int ke, int ngh){
+ for (int k=ks; k<=ke; ++k) {
+    for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+      for (int i=is; i<=ie; ++i) {
+        u_cr(CRE,k,js-j,i) = 0.0;
+        u_cr(CRF1,k,js-j,i) = 0.0;
+        u_cr(CRF2,k,js-j,i) = 0.0;
+        u_cr(CRF3,k,js-j,i) = 0.0;
+      }
+    }
+  }
+  return;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco,
+//!                             AthenaArray<Real> &prim, FaceField &b, Real time, Real dt,
+//!                             int il, int iu, int jl, int ju, int kl, int ku, int ngh)
+//! \brief  Vacuum conditions outside boundary
+
+void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
+                            FaceField &b, Real time, Real dt,
+                            int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
+  for (int n=0; n<(NHYDRO); ++n) {
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+        if (n==(IPR)) {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(IPR,k,ju+j,i) = pfloor;
+          }
+        } else if (n==(IDN))  {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(IDN,k,ju+j,i) = dfloor;
+          }
+        } else {
+#pragma omp simd
+          for (int i=il; i<=iu; ++i) {
+            prim(n,k,ju+j,i) = 0.0;
+          }
+        }
+      }
+    }
+  }
+
+  // zero face-centered magnetic fields
+  if (MAGNETIC_FIELDS_ENABLED) {
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu+1; ++i) {
+          b.x1f(k,(ju+j  ),i) =  0.0;
+        }
+      }
+    }
+
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x2f(k,(ju+j+1),i) = 0.0;  
+        }
+      }
+    }
+
+    for (int k=kl; k<=ku+1; ++k) {
+      for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x3f(k,(ju+j  ),i) =  0.0;
+        }
+      }
+    }
+  }
+
+  return;
+}
+void DiodeCROuterX2(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
+    const AthenaArray<Real> &w, FaceField &b,
+    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
+    int js, int je, int ks, int ke, int ngh){
+ for (int k=ks; k<=ke; ++k) {
+    for (int j=1; j<=ngh; ++j) {
+#pragma omp simd
+      for (int i=is; i<=ie; ++i) {
+        u_cr(CRE,k,je+j,i) = 0.0;
+        u_cr(CRF1,k,je+j,i) = 0.0;
+        u_cr(CRF2,k,je+j,i) = 0.0;
+        u_cr(CRF3,k,je+j,i) = 0.0;
+      }
+    }
+  }
+  return;
+}
