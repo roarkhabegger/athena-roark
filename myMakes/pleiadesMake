@@ -12,6 +12,6 @@ make clean
 
 sh myConfs/cr_inj_conf.sh 
 
-make -j 8
+make -j 24
 
 

@@ -1,6 +1,7 @@
 python3 configure.py \
  --prob=cr_inj \
  --nghost=2 \
+ --flux=lhlld \
  --eos="adiabatic" \
  -b \
  -cr \

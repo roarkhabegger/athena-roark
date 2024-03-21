@@ -60,10 +60,13 @@ int cooling_flag;
 int HSE_CR_Forcing;
 int HSE_Gamma;
 int uniformInj;
+int massWeight;
 
 std::vector<double> X1Inj = {};
 std::vector<double> X2Inj = {};
 std::vector<double> X3Inj = {};
+unsigned seed_inj;
+std::default_random_engine gen;
 int NInjs = 0;
 int TotalInjs = 0;
 // double lastInjT = 0.0;
@@ -73,6 +76,7 @@ double Esn_cr = 0.0;
 double Esn_th = 0.0;
 double injL = 0.0;
 double StopT = -1.0;
+double KSLaw = 1.0;
 
 double phasesX[5];
 double phasesY[5];
@@ -140,11 +144,16 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  seed_inj = pin->GetOrAddInteger("problem","seed_inj",0);
   if (rank == 0){
     std::cout << "Temp Scale = " << T_scale << std::endl;
     std::cout << "v Scale    = " << v_scale << std::endl;
     std::cout << "e Scale    = " << e_scale << std::endl;
     std::cout << "B Scale    = " << B_scale << std::endl;
+    std::cout << "multilevel = " << multilevel << std::endl;
+    unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
+    if (seed_inj != 0 ) seed1 = seed_inj;
+    gen.seed(seed1);
   }
   beta = pin->GetReal("problem","beta");
   alpha = pin->GetReal("problem","alpha");
@@ -189,6 +198,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   injH = pin->GetOrAddReal("problem","InjH",100); 
   StopT = pin->GetReal("problem","StopT");
   injL = pin->GetReal("problem","InjL");
+  massWeight = pin->GetOrAddInteger("problem","massWeight",0);
+  KSLaw = pin->GetOrAddReal("problem","KSLaw",1.0);
+  
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_cr = pin->GetOrAddReal("problem","Esn_cr",0.1) * 1.0e51/(e_scale*pow(l_scale,3));
 
@@ -240,6 +252,12 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if (rank==0) {
+    std::ofstream myfile;
+    myfile.open("injections.csv",std::ios::out | std::ios::app);
+    myfile << "Cell,X1,X2,X3\n";
+    myfile.close();
+  }
   Mesh *pm = pmy_mesh; 
   Real myGamma = pin->GetReal("hydro","gamma");
 
@@ -396,38 +414,141 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
 void Mesh::UserWorkInLoop(void)
 {
   if (uniformInj != 1){
-    int rank;
+    int size, rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     X1Inj.clear();
     X2Inj.clear();
     X3Inj.clear();
     NInjs = 0;
     if ((dt < FLT_MAX) && (time < StopT) && (time > 0.0)) {
-    if (rank == 0) {
-      Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
-      Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);;
-      Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);;
-      //std::cout << mesh_size.x1min << "," << mesh_size.x1max << std::endl;
-
-      // std::exponential_distribution<double> distDt(SNRate);
-      std::poisson_distribution<int> distN(SNRate*dt);
-
-      std::uniform_real_distribution<double> distx1(mesh_size.x1min+injL/2,mesh_size.x1max - x1d-injL/2);
-      std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
-      std::uniform_real_distribution<double> distx3(mesh_size.x3min+injL/2,mesh_size.x3max - x3d-injL/2);
-
-      unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
-      std::default_random_engine gen(seed1);
-
-      NInjs = distN(gen);
-      for (int n = 1; n <= NInjs; n++){
-        X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
-        X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
-        X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
-        std::cout << "X1: " << X1Inj[n-1] << std::endl;
-        std::cout << "X2: " << X2Inj[n-1] << std::endl;
-        std::cout << "X3: " << X3Inj[n-1] << std::endl;
-      }
+        if (massWeight == 0) {
+            if (rank == 0) {
+                std::ofstream myfile;
+                myfile.open("injections.csv",std::ios::out | std::ios::app);
+                std::poisson_distribution<int> distN(SNRate*dt);
+                NInjs = distN(gen);
+                Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
+                Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
+                Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
+                std::uniform_real_distribution<double> distx1(mesh_size.x1min+injL/2,mesh_size.x1max - x1d-injL/2);
+                std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
+                std::uniform_real_distribution<double> distx3(mesh_size.x3min+injL/2,mesh_size.x3max - x3d-injL/2);
+                for (int n = 1; n <= NInjs; n++){
+                  X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
+                  X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
+                  X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
+                  myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+                }
+                myfile.close();
+            }
+        } else {
+          std::vector<double> vecD = {};
+          std::vector<double> vecX1 = {};
+          std::vector<double> vecX2 = {};
+          std::vector<double> vecX3 = {};
+          for (int b=0; b<nblocal; ++b) {
+            MeshBlock *pmb = my_blocks(b);
+            for (int k=pmb->ks; k<=pmb->ke; k++) {
+              for (int j=pmb->js; j<=pmb->je; j++) {
+                for (int i=pmb->is; i<=pmb->ie; i++) {
+                    Real x1 = pmb->pcoord->x1v(i);
+                    Real x2 = pmb->pcoord->x2v(j);
+                    Real x3 = pmb->pcoord->x3v(k);
+                    Real density = pmb->phydro->u(IDN,k,j,i);
+                    if (fabs(x2) <= injH) {
+                        vecD.insert(vecD.end(),pow(density,KSLaw));
+                        vecX1.insert(vecX1.end(),x1);
+                        vecX2.insert(vecX2.end(),x2);
+                        vecX3.insert(vecX3.end(),x3);
+                    }
+                }
+              }
+            }
+          }
+          int nelements = (int)vecD.size();
+          
+          // if (nelements > 0) std::cout << rank << " max Element=" << *std::max_element(vecX3.begin() , vecX3.end())<<std::endl; 
+          int global_nelements = 0;
+          // std::cout << nelements << std::endl;
+          // MPI_Reduce(&nelements, &global_nelements, 1, MPI_INT, MPI_SUM, 0,MPI_COMM_WORLD);
+          int nLst[size];
+          int displacements[size];
+          if (rank ==0) {
+              MPI_Gather(&nelements, 1, MPI_INT, nLst, 1, MPI_INT, 0, MPI_COMM_WORLD);
+              global_nelements = std::accumulate(nLst, nLst + size, 0);
+          } else {
+              MPI_Gather(&nelements, 1, MPI_INT, NULL, 0, MPI_INT, 0, MPI_COMM_WORLD);
+          }
+          
+          std::vector<double> allD = {};
+          std::vector<double> allX1 = {};
+          std::vector<double> allX2 = {}; 
+          std::vector<double> allX3 = {};
+          // double* allX1 = NULL;
+          // double* allX2 = NULL;
+          // double* allX3 = NULL;
+          if (rank == 0){
+              // std::cout << global_nelements << std::endl;
+              
+            
+            allD.resize(global_nelements);
+            allX1.resize(global_nelements);
+            allX2.resize(global_nelements);
+            allX3.resize(global_nelements);
+            // allX1 =  new double[global_nelements];
+            // allX2 =  new double[global_nelements];
+            // allX3 =  new double[global_nelements];
+            
+            // std::partial_sum(nLst,nLst + size,displacements);
+            for (int i = 0; i < size; i++)
+               displacements[i] = (i > 0) ? (displacements[i-1] + nLst[i-1]) : 0;
+            // for (int n = 0; n < size; n++){
+            //       std::cout << n << "  " << nLst[n] << " " << displacements[n] << std::endl;
+            // }
+            // std::cout << "Rank 0 Post Reduce elements: "<< global_nelements << " vs " << displacements[size-1]+ nLst[size-1] << std::endl;
+          }
+            // std::cout << "Start Gather" <<std::endl;
+            MPI_Gatherv(vecD.data(), nelements, MPI_DOUBLE, allD.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Gatherv(vecX1.data(), nelements, MPI_DOUBLE, allX1.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Gatherv(vecX2.data(), nelements, MPI_DOUBLE, allX2.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Gatherv(vecX3.data(), nelements, MPI_DOUBLE, allX3.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            // std::cout << "End Gather" <<std::endl;
+//           } else {
+//             MPI_Gatherv(vecD.data(), nelements, MPI_FLOAT, NULL, NULL, NULL, MPI_FLOAT, 0, MPI_COMM_WORLD);
+//             MPI_Gatherv(vecX1.data(), nelements, MPI_FLOAT, NULL, NULL, NULL, MPI_FLOAT, 0, MPI_COMM_WORLD);
+//             MPI_Gatherv(vecX2.data(), nelements, MPI_FLOAT, NULL, NULL, NULL, MPI_FLOAT, 0, MPI_COMM_WORLD);
+//             MPI_Gatherv(vecX3.data(), nelements, MPI_FLOAT, NULL, NULL, NULL, MPI_FLOAT, 0, MPI_COMM_WORLD);
+//           }
+        
+          if (rank== 0) {
+              // std::cout << "max X3 = "<< *std::max_element(allX3.begin() , allX3.end()) << std::endl;
+              // std::cout << "max D = "<< *std::max_element(allD.begin() , allD.end()) << std::endl;
+              std::ofstream myfile;
+              myfile.open("injections.csv",std::ios::out | std::ios::app);
+              std::poisson_distribution<int> distN(SNRate*dt);
+              NInjs = distN(gen);
+              std::discrete_distribution<int> dist(allD.begin(),allD.end());
+              // std::cout << "Total Elements "<< global_nelements << std::endl;
+              for (int n = 1; n <= NInjs; n++){
+                //sample from distribution. 
+                int pick = dist(gen);
+                X1Inj.insert(X1Inj.end(), allX1[pick]);
+                X2Inj.insert(X2Inj.end(), allX2[pick]);
+                X3Inj.insert(X3Inj.end(), allX3[pick]);
+                myfile <<  pick << "," << X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+                
+                // std::cout << "X1: " << X1Inj[n-1] << std::endl;
+                // std::cout << "X2: " << X2Inj[n-1] << std::endl;
+                // std::cout << "X3: " << X3Inj[n-1] << std::endl;
+              }
+              myfile.close();
+          }
+          vecD.clear();
+          vecX1.clear();
+          vecX2.clear();
+          vecX3.clear();
+        }
 
     } 
     
@@ -440,11 +561,11 @@ void Mesh::UserWorkInLoop(void)
       X3Inj.insert(X3Inj.end(),NInjs,FLT_MAX);
     }
 
-    MPI_Bcast(&X1Inj[0],NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-    MPI_Bcast(&X2Inj[0],NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-    MPI_Bcast(&X3Inj[0],NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
+    MPI_Bcast(X1Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
+    MPI_Bcast(X2Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
+    MPI_Bcast(X3Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
     TotalInjs += NInjs;
-    }
+    
   }
 }
 
