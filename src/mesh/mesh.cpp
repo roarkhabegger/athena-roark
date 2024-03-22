@@ -84,7 +84,7 @@ Mesh::Mesh(ParameterInput *pin, int mesh_test) :
     ndim(f3 ? 3 : (f2 ? 2 : 1)),
     adaptive(pin->GetOrAddString("mesh", "refinement", "none") == "adaptive"
              ? true : false),
-    multilevel((adaptive || pin->GetOrAddString("mesh", "refinement", "none") == "static")
+    multilevel((adaptive || pin->GetOrAddString("mesh", "refinement","none") == "static")
                ? true : false),
     orbital_advection(pin->GetOrAddInteger("orbital_advection","OAorder",0)),
     shear_periodic(GetBoundaryFlag(pin->GetOrAddString("mesh", "ix1_bc", "none"))
@@ -122,7 +122,6 @@ Mesh::Mesh(ParameterInput *pin, int mesh_test) :
   std::stringstream msg;
   BoundaryFlag block_bcs[6];
   std::int64_t nbmax;
-
   // mesh test
   if (mesh_test > 0) Globals::nranks = mesh_test;
 

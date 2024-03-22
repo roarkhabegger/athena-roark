@@ -29,19 +29,19 @@ xorder       = 2          # order of spatial reconstruction
 ncycle_out   = 100        # interval for stdout summary info
 
 <mesh>
-nx1         = 128        # Number of zones in X1-direction
+nx1         = 100        # Number of zones in X1-direction
 x1min       = -500.0       # minimum value of X1
 x1max       =  500.0       # maximum value of X1 (unit: pc)
 ix1_bc      = periodic    # inner-X1 boundary flag
 ox1_bc      = periodic    # outer-X1 boundary flag
 
-nx2         = 512        # Number of zones in X2-direction
-x2min       = -2000.0       # minimum value of X2
-x2max       =  2000.0       # maximum value of X2 (unit: pc)
-ix2_bc      = outflow   # inner-X2 boundary flag
-ox2_bc      = outflow   # outer-X2 boundary flag
+nx2         = 480        # Number of zones in X2-direction
+x2min       = -2400.0       # minimum value of X2
+x2max       =  2400.0       # maximum value of X2 (unit: pc)
+ix2_bc      = user   # inner-X2 boundary flag
+ox2_bc      = user   # outer-X2 boundary flag
 
-nx3         = 128         # Number of zones in X3-direction
+nx3         = 100         # Number of zones in X3-direction
 x3min       = -500.0       # minimum value of X3
 x3max       =  500.0       # maximum value of X3 (unit: pc)
 ix3_bc      = periodic    # inner-X3 boundary flag
@@ -49,9 +49,9 @@ ox3_bc      = periodic    # outer-X3 boundary flag
 
 
 <meshblock>
-nx1        = 16
-nx2        = 16
-nx3        = 16
+nx1        = 20
+nx2        = 20
+nx3        = 20
 
 <hydro>
 gamma        = 1.66666666666667    # gamma = C_p/C_v
@@ -60,12 +60,12 @@ dfloor       = 1e-7
 
 
 <cr>
-vmax         = 3.0660139378555e3
+vmax         = 3.0669139378555e4
            # Modified Speed of light in units of pc/Myr. 3.0669139378555e5 is c
 src_flag     = 1                # CR Source terms in MHD equations (1=Yes, 0=No)
 vs_flag      = 1                # Streaming instability (1=Yes, 0=No)
 
-kappaPerp    = 3e22             # Perpendicular Diffusion Constant
+kappaPerp    = 3e20             # Perpendicular Diffusion Constant
 kappaParl    = 3e28             # Parallel Diffusion Constant
 
 <problem>
@@ -76,23 +76,26 @@ alpha      = 1.0     # inverse of Plasma beta (B^2/(2P))
 beta       = 1.0      # inverse of CR beta (P_cr/P)
 angle      = 0.0      # The B-field angle to x-direction
 
-SigmaStar  = 100
+SigmaStar  = 50
 HStar      = 100.0
 
-HSE_CR     = 0
+HSE_CR     = 1
 HSE_G      = 0
+
 
 cooling    = 4        # 0 for no Cooling function, 1 for Inoue 2006, 2 for Koyama 2002 3 for CIE 4 for CIE+Inoue
 crLoss     = 0.0      # CR Loss term
 
-SNRate     = 50
+SNRate     = 1
 InjH       = 100
-StopT      = 50
-InjL       = 25
+StopT      = 500
+InjL       = 50
 uniformInj = 0
+massWeight = 1
+seed_inj   = 2324619875
 
-Esn_th     = 1 
-Esn_cr     = 0.1
+Esn_th     = 1.0 
+Esn_cr     = 0.0
 
 
 
