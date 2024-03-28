@@ -36,16 +36,8 @@
 #include "../hydro/hydro.hpp"
 #include "../hydro/srcterms/hydro_srcterms.hpp"
 #include "../mesh/mesh.hpp"
+#include "../scalars/scalars.hpp"
 #include "../parameter_input.hpp"
-
-namespace {
-  Real unit_density_in_nH_;
-  Real unit_E_in_cgs_;
-  Real unit_time_in_s_;
-  Real cooling_cfl;
-  Real v_max;
-  int sign(Real number);
-}
 
 //======================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
@@ -53,14 +45,13 @@ namespace {
 //======================================================================================
 
 
-Real sigmaParl, sigmaPerp; //CR diffusion 
+Real sigmaParlHot, sigmaPerpHot, sigmaParlCold, sigmaPerpCold; //CR diffusion 
                            //decouple parallel (to local B field) and perpendicular diffusion coefficients
+Real T_decouple;
 Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR energy
              // can be useful to give a decay to CR energy during turbulent driving
 
 int cooling_flag;
-
-const Real T_Floor_KW =  10.0; 
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
@@ -69,13 +60,10 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-               AthenaArray<Real> &cons_scalar);
-
-Real CoolingAndHeatingRate(Real T, Real nH);              
+               AthenaArray<Real> &cons_scalar);          
 
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
-
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
@@ -87,29 +75,43 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   }
 }
 
+Real clumping(MeshBlock *pmb, int iout)
+{
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+  Real d = 0;
+  for(int k=ks; k<=ke; k++) {
+    for(int j=js; j<=je; j++) {
+      for(int i=is; i<=ie; i++) {
+        if (iout == 0) d += (pmb->phydro->u(IDN,k,j,i));
+        if (iout == 1) d += SQR(pmb->phydro->u(IDN,k,j,i));
+      }
+    }
+  }
+  return d;
+}
+
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   if(CR_ENABLED){
     //Load CR Variables
     Real vmax = pin->GetReal("cr","vmax") ;
-    Real kappaPerp = pin->GetOrAddReal("cr","kappaPerp",9.943153210629e-4);
-    Real kappaParl = pin->GetOrAddReal("cr","kappaParl",9.943153210629e4);
-    sigmaPerp = vmax/(3*kappaPerp);
-    sigmaParl = vmax/(3*kappaParl);
+    Real kappaPerpHot = pin->GetReal("cr","kappaPerpHot");
+    Real kappaParlHot = pin->GetReal("cr","kappaParlHot");
+    Real kappaPerpCold = pin->GetReal("cr","kappaPerpCold");
+    Real kappaParlCold = pin->GetReal("cr","kappaParlCold"); // 0.9943153210629e5 for 3e28
+    T_decouple = pin->GetReal("cr","T_decouple"); // Base is 8.25439974158e1 for 10^4 K
+    sigmaPerpHot = vmax/(3*kappaPerpHot);
+    sigmaParlHot = vmax/(3*kappaParlHot);
+    sigmaPerpCold = vmax/(3*kappaPerpCold);
+    sigmaParlCold = vmax/(3*kappaParlCold);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
   }
   cooling_flag = pin->GetInteger("problem","cooling");
   if (cooling_flag != 0) {
-    //EnrollUserTimeStepFunction(CoolingTimeStep);
     EnrollUserExplicitSourceFunction(mySource);
   }
-  
-  Real unit_length_in_cm_  = pin->GetOrAddReal("problem","unit_length_in_cm_", 3.086e+18);
-  Real unit_vel_in_cms_    = pin->GetOrAddReal("problem","unit_vel_in_cms_", 1.0e5);
-  unit_density_in_nH_ = pin->GetOrAddReal("problem","unit_density_in_nH_", 1);
-  unit_E_in_cgs_ = 1.67e-24 * 1.4 * unit_density_in_nH_ * unit_vel_in_cms_ * unit_vel_in_cms_;
-  unit_time_in_s_ = unit_length_in_cm_/unit_vel_in_cms_;
-  cooling_cfl = pin->GetOrAddReal("problem", "cooling_cfl", 0.1);
-  v_max = pin->GetOrAddReal("problem", "v_max", 80.0);
+  AllocateUserHistoryOutput(2);
+  EnrollUserHistoryOutput(0, clumping, "d");
+  EnrollUserHistoryOutput(1, clumping, "dSqr");
 
   // turb_flag is initialzed in the Mesh constructor to 0 by default;
   // turb_flag = 1 for decaying turbulence
@@ -148,7 +150,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   const Real T2_I      =  7.59404778e-01 ;
   // Koyama
   const Real Lamb1_K   =  1.00000000e+07 ;
-  const Real Lamb2_K   =  1.54093843e-01 ;
+  const Real Lamb2_K   =  1.54093843e+02 ; // 154.093843316
   const Real T1a_K     =  9.47605092e+02 ;
   const Real T1b_K     =  8.25439976e+00 ;
   const Real T2_K      =  7.59404778e-01 ;
@@ -159,15 +161,16 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   Real E, E_ergs, T, T0, dEDdt, dEdt;
   AthenaArray<Real> &u = cons;
 
+  Real massRate = 7*1; 
+  // the 1 is for a MW like 1 solar mass per yr SFR, in a box with about 1e-6 volume of the MW
+
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
 #pragma omp simd
       for (int i=pmb->is; i<=pmb->ie; ++i) {
         Real d = prim(IDN,k,j,i);
         Real p = prim(IPR,k,j,i);
-
         if ((d> dfloor) && (p> pfloor) ) {
-          if (cooling_flag != 2){ 
             Real T = p/d;
             Real Lamb = 0.0;
             if (cooling_flag == 1) {
@@ -175,64 +178,17 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             } else if (cooling_flag == 2) {
               Lamb = Lamb1_K*exp(-1*T1a_K/(T + T1b_K)) + Lamb2_K*sqrt(T)*exp(-1*T2_K/T);
             }
-            Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : -1*d*Heat;
+            Real dEdt = ((T > T_floor) ) ? d*Heat*( d*Lamb - 1) : 0.0;
             cons(IEN,k,j,i) -= dEdt*dt;
-          } else {
-            Real   nH   = prim(IDN,k,j,i)*unit_density_in_nH_;
-            E = prim(IPR,k,j,i)/(g-1.0);
-            E_ergs  = E * unit_E_in_cgs_ / nH;
-            T       = T0 = E_ergs / (1.5*k_b);
-            Real remain_dt = dt;
-            Real tc = 0.0;
-            //std::cout<<"ED, Ergs, T, dEdt = "<<ED<<", "<<E_ergs<<", "<<T<<", "<<dEdt<<std::endl;
-            // sub-cycling method to evaluate the energy
-            while (remain_dt > 0.0) {
-              E_ergs = E * unit_E_in_cgs_ / nH;
-              T      = E_ergs / (1.5*k_b);
-              if ( T < 0.0 ){
-                std::cout<<"T, T0 = "<< T <<", "<<T0<<std::endl;
-                std::stringstream msg;
-                msg << "### FATAL ERROR in pgen::mySource, T  < 0 " << std::endl;
-                throw std::runtime_error(msg.str().c_str());
-              }
-              dEdt = CoolingAndHeatingRate(T, nH);
-              dEDdt = (dEdt * nH / unit_E_in_cgs_) * unit_time_in_s_;
-              tc = std::min(remain_dt, cooling_cfl*std::abs(E/dEDdt));
-
-              E += dEDdt*tc;
-              if (E < pfloor/(g - 1.0))
-                E = pfloor/(g - 1.0);
-              remain_dt -= tc;
+            if ( T <= T_floor) {
+                Real cellVol = pmb->pcoord->GetCellVolume(k, j, i);
+                cons_scalar(0,k,j,i) += dt * massRate/cellVol;
             }
-            // Apply the final energy to the conserved variable
-            if (NON_BAROTROPIC_EOS) {
-              u(IEN,k,j,i) = E
-                + 0.5*( SQR(u(IM1,k,j,i)) + SQR(u(IM2,k,j,i)) + SQR(u(IM3,k,j,i))
-                    )/u(IDN,k,j,i);
-              if (MAGNETIC_FIELDS_ENABLED) {
-                u(IEN,k,j,i) += 0.5*(
-                    SQR(bcc(IB1,k,j,i)) + SQR(bcc(IB2,k,j,i)) + SQR(bcc(IB3,k,j,i)) );
-              }
-            }
-          }
         }
-        
       }
     }
   }
   return;
-}
-
-// Return the Cooling rate in cgs unit 
-// Input T in K, nH in  cm^-3
-Real CoolingAndHeatingRate(Real T, Real nH){
-  Real Heating = 2e-26;
-  Real Cooling = 2e-26*nH*(1e7*exp(-1.184e5/(T+ 1e3)) + 1.4e-2*sqrt(T)*exp(-92/T));
-  Real dEdt = Heating;
-  if (T > 20.0) {
-    dEdt = dEdt - Cooling;
-  }
-  return dEdt;
 }
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
@@ -282,6 +238,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (NON_BAROTROPIC_EOS) {
             phydro->u(IEN, k, j, i) = pres/gm1;
         }
+        if (NSCALARS == 1) {
+            pscalars->s(0,k,j,i) = 0.0;
+        }
 
         if (CR_ENABLED) {
             pcr->u_cr(CRE,k,j,i) = 3*crp;
@@ -295,17 +254,23 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   //Need to set opactiy sigma in the ghost zones
   if (CR_ENABLED) {
   // Default values are 1/3
-    int nz1 = block_size.nx1 + 2*(NGHOST);
-    int nz2 = block_size.nx2;
-    if (nz2 > 1) nz2 += 2*(NGHOST);
-    int nz3 = block_size.nx3;
-    if (nz3 > 1) nz3 += 2*(NGHOST);
-    for(int k=0; k<nz3; ++k) {
-      for(int j=0; j<nz2; ++j) {
-        for(int i=0; i<nz1; ++i) {
-          pcr->sigma_diff(0,k,j,i) = sigmaParl;
-          pcr->sigma_diff(1,k,j,i) = sigmaPerp;
-          pcr->sigma_diff(2,k,j,i) = sigmaPerp;
+    for(int k=ks; k<=ke; ++k) {
+      for (int j=js; j<=je; ++j) {
+        for (int i=is; i<=ie; ++i) {
+            Real T = pres/nH;
+            Real fracCold = 0.0;
+            Real width = 0.1 * T_decouple;  //8.25439974158e-1;
+            fracCold = 0.5*(1 - std::tanh( (T - T_decouple)/width));
+            Real parl = std::exp((std::log(sigmaParlCold) - std::log(sigmaParlHot)) * fracCold + std::log(sigmaParlHot));
+            Real perp = std::exp((std::log(sigmaPerpCold) - std::log(sigmaPerpHot)) * fracCold + std::log(sigmaPerpHot));
+
+            pcr->sigma_diff(0,k,j,i) = parl; 
+            //sigma_diff is defined with x0 coordinate parallel to local B field
+            pcr->sigma_diff(1,k,j,i) = perp;
+            pcr->sigma_diff(2,k,j,i) = perp;
+            // pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
+            // pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
+            // pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;
         }
       }
     }
@@ -354,11 +319,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       }
     }
   }
+  
   return;
 }
 
+
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
-               AthenaArray<Real> &prim, AthenaArray<Real> &bcc) {
+              AthenaArray<Real> &prim, AthenaArray<Real> &bcc) {
   // set the default opacity to be a large value in the default hydro case
   CosmicRay *pcr=pmb->pcr;
   int kl=pmb->ks, ku=pmb->ke;
@@ -372,20 +339,30 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
     kl -= 1;
     ku += 1;
   }
-
+  Real invlim = 1.0/pcr->vmax;
+  Real pfloor = pmb->peos->GetPressureFloor();
+  Real dfloor = pmb->peos->GetDensityFloor();
   for(int k=kl; k<=ku; ++k) {
     for(int j=jl; j<=ju; ++j) {
 #pragma omp simd
       for(int i=il; i<=iu; ++i) {
-        pcr->sigma_diff(0,k,j,i) = sigmaParl; //sigma_diff is defined with x0 coordinate parallel to local B field
-        pcr->sigma_diff(1,k,j,i) = sigmaPerp;
-        pcr->sigma_diff(2,k,j,i) = sigmaPerp;
+        Real d = prim(IDN,k,j,i);
+        Real p = prim(IPR,k,j,i);
+        Real T = p/d;
+        Real width =   0.1 * T_decouple;
+        Real fracCold = 0.0;
+        if ((d> dfloor) && (p> pfloor) ) {
+             fracCold = 0.5*(1 - std::tanh( (T - T_decouple)/width));
+        }
+        Real parl = std::exp((std::log(sigmaParlCold) - std::log(sigmaParlHot)) * fracCold + std::log(sigmaParlHot));
+        Real perp = std::exp((std::log(sigmaPerpCold) - std::log(sigmaPerpHot)) * fracCold + std::log(sigmaPerpHot));
+        pcr->sigma_diff(0,k,j,i) = parl; 
+        //sigma_diff is defined with x0 coordinate parallel to local B field
+        pcr->sigma_diff(1,k,j,i) = perp;
+        pcr->sigma_diff(2,k,j,i) = perp;
       }
     }
   }
-
-  Real invlim=1.0/pcr->vmax;
-
   // The information stored in the array
   // b_angle is
   // b_angle[0]=sin_theta_b
@@ -450,6 +427,7 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
           Real va3 = bcc(IB3,k,j,i)*inv_sqrt_rho;
 
           Real va = std::sqrt(pb/prim(IDN,k,j,i));
+          if (pcr->stream_flag > 0) va = 0;
 
           Real dpc_sign = 0.0;
           if (pcr->b_grad_pc(k,j,i) > TINY_NUMBER) dpc_sign = 1.0;
@@ -529,8 +507,3 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   }
 }
 
-namespace {
-int sign(Real number) {
-  return (number > 0) - (number < 0);
-}
-}
