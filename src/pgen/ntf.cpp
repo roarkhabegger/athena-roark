@@ -43,7 +43,7 @@
 #include "../parameter_input.hpp"
 
 const Real v_scale =  97779222.16807891 ;
-const Real l_scale = 3.0856775814913673e21;
+const Real l_scale = 3.0856775814913673e18;
 const Real e_scale = 1.5991564026460636e-08;
 const Real k_B = 1.380649e-16;
 
