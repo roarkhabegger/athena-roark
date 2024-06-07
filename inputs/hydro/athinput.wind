@@ -1,0 +1,60 @@
+<comment>
+problem   = multiple spherical blast waves
+configure = --prob=wind
+
+<job>
+problem_id = wind      # problem ID: basename of output filenames
+
+<output1>
+file_type  = hst        # History data dump
+dt         = 0.1       # time increment between outputs
+
+<output2>
+file_type  =tab      # Binary data dump
+variable   = prim       # variables to be output
+dt         =1       # time increment between outputs
+
+<time>
+cfl_number = 0.1        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1        # cycle limit
+tlim       = 100.0        # time limit
+integrator  = vl2       # time integration algorithm
+xorder      = 2         # order of spatial reconstruction
+ncycle_out  = 1         # interval for stdout summary info
+
+<mesh>
+nx1        = 1000         # Number of zones in X1-direction
+x1min      = 0.0       # minimum value of X1
+x1max      = 100        # maximum value of X1
+ix1_bc     = outflow  # inner-X1 boundary flag
+ox1_bc     = outflow   # outer-X1 boundary flag
+
+nx2        = 1     # Number of zones in X2-direction
+x2min      = 0.0      # minimum value of X2
+x2max      = 3.1415926535      # maximum value of X2
+ix2_bc     = periodic   # inner-X2 boundary flag
+ox2_bc     = periodic   # outer-X2 boundary flag
+
+nx3        = 1         # Number of zones in X3-direction
+x3min      = -3.1415926535       # minimum value of X3
+x3max      = 3.1415926535        # maximum value of X3
+ix3_bc     = periodic   # inner-X3 boundary flag
+ox3_bc     = periodic   # outer-X3 boundary flag
+
+<hydro>
+gamma           = 1.666666666667 # gamma = C_p/C_v
+pfloor          =1e-12
+dfloor          =1e-12
+
+<problem>
+d0 = 1
+p0 = 1 
+r0 = 10
+tau = 1e-3
+
+E1 = 9e4
+M1 = 0#-8
+
+E2 = 2e5#1e-4
+M2 = 0#1e-8
+t2 =10
