@@ -6,6 +6,7 @@ configure.log
 # Object and binary directories
 obj/
 bin/
+myMakes/
 
 # Compiled object files
 *.slo
