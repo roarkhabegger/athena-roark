@@ -42,37 +42,43 @@
 #include "../mesh/mesh.hpp"
 #include "../parameter_input.hpp"
 
-const Real v_scale =  97779222.16807891 ;
+const Real v_scale =  97779222.16807891 ; //Scale constants in CGS
 const Real l_scale = 3.0856775814913673e18;
 const Real e_scale = 1.5991564026460636e-08;
 const Real k_B = 1.380649e-16;
 
 Real r0;
-Real crf0;
-Real ucr0;
+Real L0;
+Real vcr_inj;
 Real tf;
 Real ti;
-
+Real inv_crLosstime;
 
 
 Real sigmaParl, sigmaPerp; //CR diffusion 
                            //decouple parallel (to local B field) and perpendicular diffusion coefficients
 
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
-        AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
+                AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
 
-void NTFInnerCRX1(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
-    const AthenaArray<Real> &w, FaceField &b,
-    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
-    int js, int je, int ks, int ke, int ngh);
+void CRSource(MeshBlock *pmb, const Real time, const Real dt,
+                const AthenaArray<Real> &prim, FaceField &b, 
+                AthenaArray<Real> &u_cr);
 
-void NTFInnerX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim, FaceField &b,
-                Real time, Real dt,
-                int il, int iu, int jl, int ju, int kl, int ku, int ngh);
+// void NTFInnerCRX1(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
+//                 const AthenaArray<Real> &w, FaceField &b,
+//                 AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
+//                 int js, int je, int ks, int ke, int ngh);
+
+// void NTFInnerX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim, FaceField &b,
+//                 Real time, Real dt,
+//                 int il, int iu, int jl, int ju, int kl, int ku, int ngh);
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
     pcr->EnrollOpacityFunction(Diffusion);
+    inv_crLosstime = pin->GetOrAddReal("problem","inv_crLosstime",0.0);
+    pcr->EnrollUserCRSource(CRSource);
   }
   return;
 }
@@ -88,23 +94,19 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     sigmaParl = vmax/(3*kappaParl);
     r0 = pin->GetReal("problem","r0") ;
     ti = pin->GetOrAddReal("problem","ti",0.0) ;
-    tf = pin->GetReal("problem","tf") ;
-    Real inv_betaCR_inj = pin->GetReal("problem","inv_betaCR_inj");
-    Real vcr_inj = pin->GetReal("problem","vcr_inj");
+    tf = pin->GetReal("problem","tf");
+    L0 = pin->GetReal("problem","L0");
+    vcr_inj = pin->GetReal("problem","vcr_inj");
 
-    Real T0 = pin->GetReal("problem", "T0"); // now T is in K
-    Real n0 = pin->GetReal("problem", "n0"); // midplane particles per ccm
-    Real gm1 = pin->GetReal("hydro","gamma") -1;
-    Real P0 = (n0*k_B*T0)/e_scale;
-
-    ucr0 = inv_betaCR_inj* P0 * 3;
-    crf0 = 4.0/3.0 * ucr0 * vcr_inj;
+    // Real T0 = pin->GetReal("problem", "T0"); // now T is in K
+    // Real n0 = pin->GetReal("problem", "n0"); // midplane particles per ccm
+    // Real gm1 = pin->GetReal("hydro","gamma") -1;
+    // Real P0 = (n0*k_B*T0)/e_scale;
   }
-  if (mesh_bcs[BoundaryFace::inner_x1] == BoundaryFlag::user) {
-      EnrollUserBoundaryFunction(BoundaryFace::inner_x1, NTFInnerX1);
-      EnrollUserCRBoundaryFunction(BoundaryFace::inner_x1, NTFInnerCRX1);
-  }
-  
+  // if (mesh_bcs[BoundaryFace::inner_x1] == BoundaryFlag::user) {
+  //     EnrollUserBoundaryFunction(BoundaryFace::inner_x1, NTFInnerX1);
+  //     EnrollUserCRBoundaryFunction(BoundaryFace::inner_x1, NTFInnerCRX1);
+  // }  
   return;
 }
 
@@ -220,84 +222,88 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 //! \fn void NTFInnerCRX1()
 //  \brief Sets boundary condition on left X boundary (iib) for jet problem
 
-void NTFInnerCRX1(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
-    const AthenaArray<Real> &w, FaceField &b,
-    AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
-    int js, int je, int ks, int ke, int ngh){
- for (int k=ks; k<=ke; ++k) {
-    for (int j=js; j<=je; ++j) {
-#pragma omp simd
-      for (int i=1; i<=ngh; ++i) {
-        Real rad = std::sqrt(SQR(pco->x2v(j)) + SQR(pco->x3v(k)));
+// void NTFInnerCRX1(MeshBlock *pmb, Coordinates *pco, CosmicRay *pcr,
+//     const AthenaArray<Real> &w, FaceField &b,
+//     AthenaArray<Real> &u_cr, Real time, Real dt, int is, int ie,
+//     int js, int je, int ks, int ke, int ngh){
+//  for (int k=ks; k<=ke; ++k) {
+//     for (int j=js; j<=je; ++j) {
+// #pragma omp simd
+//       for (int i=1; i<=ngh; ++i) {
+//         //Real rad = std::sqrt(SQR(pco->x2v(j)) + SQR(pco->x3v(k)));
 
-        if ((rad <= r0) && (time >= ti) && (time <= tf)) {
-          u_cr(CRE,k,j,is-i) = ucr0;
-          u_cr(CRF1,k,j,is-i) = crf0;
-          u_cr(CRF2,k,j,is-i) = u_cr(CRF2,k,j,is);
-          u_cr(CRF3,k,j,is-i) = u_cr(CRF3,k,j,is);
-        } else {
-          u_cr(CRE,k,j,is-i) = u_cr(CRE,k,j,is);
-          u_cr(CRF1,k,j,is-i) = u_cr(CRF1,k,j,is);
-          u_cr(CRF2,k,j,is-i) = u_cr(CRF2,k,j,is);
-          u_cr(CRF3,k,j,is-i) = u_cr(CRF3,k,j,is);
-        }
+//         //if ((rad <= r0) && (time >= ti) && (time <= tf)) { //Use if not 1d
+//         if ((time >= ti) && (time <= tf)) {
+//           Real ucr = L0 * dt / (pco->GetEdge1Length(k,j,i) * M_PI * SQR(r0));
+
+//           u_cr(CRE,k,j,is-i) = ucr;
+//           u_cr(CRF1,k,j,is-i) = 4.0/3.0 * ucr * vcr_inj;
+//           u_cr(CRF2,k,j,is-i) = u_cr(CRF2,k,j,is);
+//           u_cr(CRF3,k,j,is-i) = u_cr(CRF3,k,j,is);
+//         } else {
+//           u_cr(CRE,k,j,is-i) = u_cr(CRE,k,j,is);
+//           u_cr(CRF1,k,j,is-i) = u_cr(CRF1,k,j,is);
+//           u_cr(CRF2,k,j,is-i) = u_cr(CRF2,k,j,is);
+//           u_cr(CRF3,k,j,is-i) = u_cr(CRF3,k,j,is);
+//         }
         
-      }
-    }
-  }
-  return;
-}
+//       }
+//     }
+//   }
+//   return;
+// }
 
 //----------------------------------------------------------------------------------------
 //! \fn void NTFInnerX1()
 //  \brief Sets boundary condition on left X boundary (iib) for jet problem
 
-void NTFInnerX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim, FaceField &b,
-                Real time, Real dt,
-                int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
-  // set primitive variables in inlet ghost zones
-  for (int k=kl; k<=ku; ++k) {
-    for (int j=jl; j<=ju; ++j) {
-      for (int i=1; i<=ngh; ++i) {
-        prim(IDN,k,j,il-i) = prim(IDN,k,j,il);
-        prim(IVX,k,j,il-i) = prim(IVX,k,j,il);
-        prim(IVY,k,j,il-i) = prim(IVY,k,j,il);
-        prim(IVZ,k,j,il-i) = prim(IVZ,k,j,il);
-        prim(IPR,k,j,il-i) = prim(IPR,k,j,il);
-      }
-    }
-  }
+// void NTFInnerX1(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim, FaceField &b,
+//                 Real time, Real dt,
+//                 int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
+//   // set primitive variables in inlet ghost zones
+//   for (int k=kl; k<=ku; ++k) {
+//     for (int j=jl; j<=ju; ++j) {
+// #pragma omp simd
+//       for (int i=1; i<=ngh; ++i) {
+//         prim(IDN,k,j,il-i) = prim(IDN,k,j,il);
+//         prim(IVX,k,j,il-i) = prim(IVX,k,j,il);
+//         prim(IVY,k,j,il-i) = prim(IVY,k,j,il);
+//         prim(IVZ,k,j,il-i) = prim(IVZ,k,j,il);
+//         prim(IPR,k,j,il-i) = prim(IPR,k,j,il);
+//       }
+//     }
+//   }
 
-  // set magnetic field in inlet ghost zones
-  if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=jl; j<=ju; ++j) {
-#pragma omp simd
-        for (int i=1; i<=ngh; ++i) {
-          b.x1f(k,j,il-i) = b.x1f(k,j,il);
-        }
-      }
-    }
+//   // set magnetic field in inlet ghost zones
+//   if (MAGNETIC_FIELDS_ENABLED) {
+//     for (int k=kl; k<=ku; ++k) {
+//       for (int j=jl; j<=ju; ++j) {
+// #pragma omp simd
+//         for (int i=1; i<=ngh; ++i) {
+//           b.x1f(k,j,il-i) = b.x1f(k,j,il);
+//         }
+//       }
+//     }
 
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=jl; j<=ju+1; ++j) {
-#pragma omp simd
-        for (int i=1; i<=ngh; ++i) {
-          b.x2f(k,j,il-i) = b.x2f(k,j,il);
-        }
-      }
-    }
+//     for (int k=kl; k<=ku; ++k) {
+//       for (int j=jl; j<=ju+1; ++j) {
+// #pragma omp simd
+//         for (int i=1; i<=ngh; ++i) {
+//           b.x2f(k,j,il-i) = b.x2f(k,j,il);
+//         }
+//       }
+//     }
 
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=jl; j<=ju; ++j) {
-#pragma omp simd
-        for (int i=1; i<=ngh; ++i) {
-          b.x3f(k,j,il-i) = b.x3f(k,j,il);
-        }
-      }
-    }
-  }
-}
+//     for (int k=kl; k<=ku+1; ++k) {
+//       for (int j=jl; j<=ju; ++j) {
+// #pragma omp simd
+//         for (int i=1; i<=ngh; ++i) {
+//           b.x3f(k,j,il-i) = b.x3f(k,j,il);
+//         }
+//       }
+//     }
+//   }
+// }
 
 
 void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
@@ -475,3 +481,23 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
   }
 }
 
+void CRSource(MeshBlock *pmb, const Real time, const Real dt,
+                const AthenaArray<Real> &prim, FaceField &b, 
+                AthenaArray<Real> &u_cr){ 
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+  #pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        //CRLoss Term
+        u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
+
+        Real rad = std::sqrt(SQR(pmb->pcoord->x2v(j)) + SQR(pmb->pcoord->x3v(k)));
+        if ((pmb->pcoord->x1f(i) == 0) && (rad <= r0) && (time >= ti) && (time <= tf)) {
+          //CRSource Term
+          u_cr(CRE,k,j,i) += L0 * dt / (pmb->pcoord->GetEdge1Length(k,j,i) * 4 * SQR(r0)); //4 if Cartesian, M_PI if Cylindrical
+        }
+      }
+    }
+  }
+  return;
+}

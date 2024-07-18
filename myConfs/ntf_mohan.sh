@@ -1,7 +1,7 @@
 python3 configure.py \
  --prob=ntf \
- --nghost=2 \
- --coord=cylindrical \
+ --nghost=4 \
+ --coord=cartesian \
  --flux=roe \
  --eos="adiabatic" \
  -b \
