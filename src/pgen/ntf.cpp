@@ -49,10 +49,10 @@ const Real k_B = 1.380649e-16;
 
 Real r0;
 Real L0;
-Real vcr_inj;
 Real tf;
 Real ti;
 Real inv_crLosstime;
+int dim;
 
 
 Real sigmaParl, sigmaPerp; //CR diffusion 
@@ -96,7 +96,16 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     ti = pin->GetOrAddReal("problem","ti",0.0) ;
     tf = pin->GetReal("problem","tf");
     L0 = pin->GetReal("problem","L0");
-    vcr_inj = pin->GetReal("problem","vcr_inj");
+
+    if (pin->GetInteger("mesh","nx2") == 1) {
+      dim = 1;
+    } else if (pin->GetInteger("mesh, nx3") == 1) {
+      dim = 2;
+    } else {
+      dim = 3;
+    }
+    
+    //vcr_inj = pin->GetReal("problem","vcr_inj");
 
     // Real T0 = pin->GetReal("problem", "T0"); // now T is in K
     // Real n0 = pin->GetReal("problem", "n0"); // midplane particles per ccm
@@ -484,17 +493,51 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
                 AthenaArray<Real> &u_cr){ 
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-  #pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        //CRLoss Term
-        u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
+  if ((COORDINATE_SYSTEM == "cylindrical") && (dim == 3)) {
+    for (int k=pmb->ks; k<=pmb->ke; ++k) {
+      for (int j=pmb->js; j<=pmb->je; ++j) {
+    #pragma omp simd
+        for (int i=pmb->is; i<=pmb->ie; ++i) {
+          //CRLoss Term
+          u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
 
-        Real rad = std::sqrt(SQR(pmb->pcoord->x2v(j)) + SQR(pmb->pcoord->x3v(k)));
-        if ((pmb->pcoord->x1f(i) == 0) && (rad <= r0) && (time >= ti) && (time <= tf)) {
-          //CRSource Term
-          u_cr(CRE,k,j,i) += L0 * dt / (pmb->pcoord->GetEdge1Length(k,j,i) * 4 * SQR(r0)); //4 if Cartesian, M_PI if Cylindrical
+          Real rad_percent = std::min(1.0, std::max(0.0, pmb->pcoord->x1f(k,j,i) - r0 / pmb->pcoord->dx1f(k,j,i))); //Returns percentage of cylindrical block within r0.
+          if ((pmb->pcoord->x1f(i) == 0) && (time >= ti) && (time <= tf)) {
+            //CRSource Term
+            u_cr(CRE,k,j,i) += L0 * dt * rad_percent / (pmb->pcoord->GetEdge1Length(k,j,i) * M_PI * SQR(r0)); //4 if Cartesian, M_PI if Cylindrical
+          }
+        }
+      }
+    }
+  } else if ((COORDINATE_SYSTEM == "cartesian") && (dim == 1)) {
+    for (int k=pmb->ks; k<=pmb->ke; ++k) {
+      for (int j=pmb->js; j<=pmb->je; ++j) {
+    #pragma omp simd
+        for (int i=pmb->is; i<=pmb->ie; ++i) {
+          //CRLoss Term
+          u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
+
+          if ((pmb->pcoord->x1f(i) == 0) && (time >= ti) && (time <= tf)) {
+            //CRSource Term
+            u_cr(CRE,k,j,i) += L0 * dt / pmb->pcoord->GetCellVolume(k,j,i);
+          }
+        }
+      }
+    }
+  } else if ((COORDINATE_SYSTEM == "cartesian") && (dim == 3)) { //NOT FINISHED
+    for (int k=pmb->ks; k<=pmb->ke; ++k) {
+      for (int j=pmb->js; j<=pmb->je; ++j) {
+    #pragma omp simd
+        for (int i=pmb->is; i<=pmb->ie; ++i) {
+          //CRLoss Term
+          u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
+
+          Real rad = std::sqrt(SQR(pmb->pcoord->x2v(j)) + SQR(pmb->pcoord->x3v(k)));
+          Real rad_percent = 0.0;
+          if ((pmb->pcoord->x1f(i) == 0) && (rad <= r0) && (time >= ti) && (time <= tf)) {
+            //CRSource Term
+            u_cr(CRE,k,j,i) += L0 * dt / (pmb->pcoord->GetEdge1Length(k,j,i) * 4 * SQR(r0)); //4 if Cartesian, M_PI if Cylindrical
+          }
         }
       }
     }

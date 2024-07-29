@@ -8,6 +8,10 @@ obj/
 bin/
 myMakes/
 
+# Slurm job logs
+job/
+
+
 # Compiled object files
 *.slo
 *.lo
@@ -48,6 +52,7 @@ meshtest.dat
 # editor temp files
 *~
 *.swp
+*.vscode
 
 # Gcov: GCC coverage testing tool- data files
 *.gcno

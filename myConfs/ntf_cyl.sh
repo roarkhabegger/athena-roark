@@ -1,10 +1,12 @@
 python3 configure.py \
  --prob=ntf \
- --nghost=2 \
+ --nghost=4 \
+ --coord=cylindrical \
+ --flux=roe \
  --eos="adiabatic" \
  -b \
  -cr \
  -hdf5 \
  -mpi \
- --hdf5_path="/usr/local/hdf5-1.14.0" \
+ --hdf5_path=$HDF5_ROOT \
  --cflag='-DH5_HAVE_PARALLEL ' \
