@@ -1,7 +1,7 @@
 #!/bin/sh
 #This file is called compileAthena.sh
 #SBATCH --partition=shared       # default "shared", if not specified
-#SBATCH --time=0-00:10:00       # run time in days-hh:mm:ss
+#SBATCH --time=0-00:02:00       # run time in days-hh:mm:ss
 #SBATCH --nodes=1               # require 4 nodes
 #SBATCH --ntasks-per-node=8    # cpus per node (by default, "ntasks"="cpus")
 #SBATCH --mem-per-cpu=4000             # RAM per cpu in megabytes

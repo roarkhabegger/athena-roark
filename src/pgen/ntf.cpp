@@ -97,9 +97,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     tf = pin->GetReal("problem","tf");
     L0 = pin->GetReal("problem","L0");
 
-    if (pin->GetInteger("mesh","nx2") == 1) {
+    if (pin->GetInteger("mesh", "nx2") == 1) {
       dim = 1;
-    } else if (pin->GetInteger("mesh, nx3") == 1) {
+    } else if (pin->GetInteger("mesh", "nx3") == 1) {
       dim = 2;
     } else {
       dim = 3;
@@ -501,10 +501,10 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
           //CRLoss Term
           u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
 
-          Real rad_percent = std::min(1.0, std::max(0.0, pmb->pcoord->x1f(k,j,i) - r0 / pmb->pcoord->dx1f(k,j,i))); //Returns percentage of cylindrical block within r0.
-          if ((pmb->pcoord->x1f(i) == 0) && (time >= ti) && (time <= tf)) {
+          if ((pmb->pcoord->x3f(k) == 0) && (time >= ti) && (time <= tf)) {
             //CRSource Term
-            u_cr(CRE,k,j,i) += L0 * dt * rad_percent / (pmb->pcoord->GetEdge1Length(k,j,i) * M_PI * SQR(r0)); //4 if Cartesian, M_PI if Cylindrical
+            Real rad_percent = std::min(1.0, std::max(0.0, (r0 - pmb->pcoord->x1f(i)) / pmb->pcoord->dx1f(i))); //Returns percentage of cylindrical cell within r0.
+            u_cr(CRE,k,j,i) += L0 * dt * rad_percent / (pmb->pcoord->GetEdge1Length(k,j,i) * M_PI * SQR(r0));
           }
         }
       }
