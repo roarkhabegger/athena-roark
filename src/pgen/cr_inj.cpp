@@ -60,6 +60,7 @@ int cooling_flag;
 int HSE_CR_Forcing;
 int HSE_Gamma;
 int uniformInj;
+int uniformCRInj;
 int massWeight;
 
 std::vector<double> X1Inj = {};
@@ -211,6 +212,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HSE_CR_Forcing = pin->GetOrAddInteger("problem","HSE_CR",0);
   HSE_Gamma= pin->GetOrAddInteger("problem","HSE_G",0);
   uniformInj = pin->GetOrAddInteger("problem","uniformInj",0);
+  uniformCRInj = pin->GetOrAddInteger("problem","uniformCRInj",0);
 
   EnrollUserExplicitSourceFunction(mySource);
   
@@ -725,7 +727,7 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
         }
 
         //INJECTION
-        if (uniformInj != 1){
+        if ((uniformInj != 1) && (uniformCRInj !=1)){
           Real x1 = pmb->pcoord->x1v(i);
           Real x2 = pmb->pcoord->x2v(j);
           Real x3 = pmb->pcoord->x3v(k);
@@ -750,7 +752,23 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
             }
           }
         }
-        if (uniformInj == 1){
+        if ((uniformInj != 1) && (uniformCRInj == 1)){
+          Real x2l = pmb->pcoord->x2f(j);
+          Real x2u = pmb->pcoord->x2f(j+1);
+
+          Real Vol = 2*injH*(pm->mesh_size.x1max - pm->mesh_size.x1min)*(pm->mesh_size.x3max - pm->mesh_size.x3min);
+          
+          Real frac = 0.0;
+          if ((fabs(x2l) <= injH) && (fabs(x2u) <= injH)) {
+            frac = 1.0;
+          } else if ((x2l < -injH) && (x2u > -injH)) {
+            frac = fabs( (-injH - x2u)/(x2l-x2u) );
+          } else if ((x2u > injH) && (x2l < injH)) {
+            frac = fabs( (injH - x2l)/(x2u-x2l) );
+          }
+          u_cr(CRE,k,j,i) += Esn_cr/Vol*NInjs*frac;
+        }
+        if ((uniformInj == 1) && (uniformCRInj == 1)){
           Real x2v = abs(pmb->pcoord->x2v(j));
           Real Vol = 2*injH*(pm->mesh_size.x1max - pm->mesh_size.x1min)*(pm->mesh_size.x3max - pm->mesh_size.x3min);
           if (x2v < injH) {
