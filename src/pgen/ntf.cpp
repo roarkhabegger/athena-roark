@@ -41,8 +41,8 @@
 #include "../hydro/srcterms/hydro_srcterms.hpp"
 #include "../mesh/mesh.hpp"
 #include "../parameter_input.hpp"
-
-const Real v_scale =  97779222.16807891 ; //Scale constants in CGS
+ 
+const Real v_scale = 97779222.16807891 ; //Scale constants in CGS
 const Real l_scale = 3.0856775814913673e18;
 const Real e_scale = 1.5991564026460636e-08;
 const Real k_B = 1.380649e-16;
@@ -90,8 +90,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real vmax = pin->GetReal("cr","vmax") ;
     Real kappaPerp = pin->GetOrAddReal("cr","kappaPerp",3e28)/(v_scale*l_scale) ;
     Real kappaParl = pin->GetOrAddReal("cr","kappaParl",3e28)/(v_scale*l_scale) ;
-    sigmaPerp = vmax/(3*kappaPerp);
-    sigmaParl = vmax/(3*kappaParl);
+    sigmaPerp = vmax / (3*kappaPerp);
+    sigmaParl = vmax / (3*kappaParl);
     r0 = pin->GetReal("problem","r0") ;
     ti = pin->GetOrAddReal("problem","ti",0.0) ;
     tf = pin->GetReal("problem","tf");
@@ -501,9 +501,9 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
           //CRLoss Term
           u_cr(CRE,k,j,i) -= inv_crLosstime * dt * u_cr(CRE,k,j,i);
 
-          if ((pmb->pcoord->x3f(k) == 0) && (time >= ti) && (time <= tf)) {
+          if ((pmb->pcoord->x3f(k) == 0) && (time >= ti) && (time <= tf) && (pmb->pcoord->x1v(i) < r0)) {
             //CRSource Term
-            Real rad_percent = std::min(1.0, std::max(0.0, (r0 - pmb->pcoord->x1f(i)) / pmb->pcoord->dx1f(i))); //Returns percentage of cylindrical cell within r0.
+            Real rad_percent = std::min(1.0, std::max(0.0, (SQR(r0) - SQR(pmb->pcoord->x1f(i))) / pmb->pcoord->dx1f(i))); //Returns percentage of cylindrical cell within r0.
             u_cr(CRE,k,j,i) += L0 * dt * rad_percent / (pmb->pcoord->GetEdge1Length(k,j,i) * M_PI * SQR(r0));
           }
         }

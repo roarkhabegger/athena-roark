@@ -8,5 +8,6 @@ python3 configure.py \
  -cr \
  -hdf5 \
  -mpi \
+ -omp \
  --hdf5_path=$HDF5_ROOT \
  --cflag='-DH5_HAVE_PARALLEL ' \
