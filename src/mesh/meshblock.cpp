@@ -23,8 +23,11 @@
 #include "../athena.hpp"
 #include "../athena_arrays.hpp"
 #include "../bvals/bvals.hpp"
+#include "../bvals/sixray/bvals_sixray.hpp" //SixRayBoundaryVariable
+#include "../chem_rad/chem_rad.hpp"
 #include "../coordinates/coordinates.hpp"
 #include "../cr/cr.hpp"
+#include "../crdiffusion/crdiffusion.hpp"
 #include "../eos/eos.hpp"
 #include "../fft/athena_fft.hpp"
 #include "../field/field.hpp"
@@ -109,22 +112,7 @@ MeshBlock::MeshBlock(int igid, int ilid, LogicalLocation iloc, RegionSize input_
   pbval  = new BoundaryValues(this, input_bcs, pin);
 
   // Coordinates
-  if (std::strcmp(COORDINATE_SYSTEM, "cartesian") == 0) {
-    pcoord = new Cartesian(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "cylindrical") == 0) {
-    pcoord = new Cylindrical(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "spherical_polar") == 0) {
-    pcoord = new SphericalPolar(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "minkowski") == 0) {
-    pcoord = new Minkowski(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "schwarzschild") == 0) {
-    pcoord = new Schwarzschild(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "kerr-schild") == 0) {
-    pcoord = new KerrSchild(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "gr_user") == 0) {
-    pcoord = new GRUser(this, pin, false);
-  }
-
+  pcoord = new Coordinates(this, pin, false);
 
 //=================================================================
 //set the total number of frequency x angles
@@ -218,8 +206,6 @@ MeshBlock::MeshBlock(int igid, int ilid, LogicalLocation iloc, RegionSize input_
     // if (this->grav_block)
     pgrav = new Gravity(this, pin);
     pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
-    if (SELF_GRAVITY_ENABLED == 2)
-      pmg = new MGGravity(pmy_mesh->pmgrd, this);
   }
   if (NSCALARS > 0) {
     // if (this->scalars_block)
@@ -238,6 +224,12 @@ MeshBlock::MeshBlock(int igid, int ilid, LogicalLocation iloc, RegionSize input_
 
   peos = new EquationOfState(this, pin);
 
+  if (CHEMRADIATION_ENABLED) {
+    pchemrad = new ChemRadiation(this, pin);
+    pbval->AdvanceCounterPhysID(SixRayBoundaryVariable::max_phys_id);
+  } else {
+    pchemrad = NULL;
+  }
   if (NR_RADIATION_ENABLED || IM_RADIATION_ENABLED) {
        //radiation constructor needs the parameter nfre_ang
     pnrrad = new NRRadiation(this, pin);
@@ -248,6 +240,11 @@ MeshBlock::MeshBlock(int igid, int ilid, LogicalLocation iloc, RegionSize input_
 
   if (CR_ENABLED) {
     pcr = new CosmicRay(this, pin);
+    pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
+  }
+
+  if (CRDIFFUSION_ENABLED) {
+    pcrdiff = new CRDiffusion(this, pin);
     pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
   }
 
@@ -318,22 +315,7 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
   pbval = new BoundaryValues(this, input_bcs, pin);
 
   // Coordinates
-  if (std::strcmp(COORDINATE_SYSTEM, "cartesian") == 0) {
-    pcoord = new Cartesian(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "cylindrical") == 0) {
-    pcoord = new Cylindrical(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "spherical_polar") == 0) {
-    pcoord = new SphericalPolar(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "minkowski") == 0) {
-    pcoord = new Minkowski(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "schwarzschild") == 0) {
-    pcoord = new Schwarzschild(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "kerr-schild") == 0) {
-    pcoord = new KerrSchild(this, pin, false);
-  } else if (std::strcmp(COORDINATE_SYSTEM, "gr_user") == 0) {
-    pcoord = new GRUser(this, pin, false);
-  }
-
+  pcoord = new Coordinates(this, pin, false);
 
   //======================================================================
   // radiation constructor needs to be done before reconstruction
@@ -418,8 +400,6 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
     // if (this->grav_block)
     pgrav = new Gravity(this, pin);
     pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
-    if (SELF_GRAVITY_ENABLED == 2)
-      pmg = new MGGravity(pmy_mesh->pmgrd, this);
   }
 
   if (NSCALARS > 0) {
@@ -429,6 +409,9 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
   }
 
   peos = new EquationOfState(this, pin);
+  if (CHEMRADIATION_ENABLED) {
+    pchemrad = new ChemRadiation(this, pin);
+  }
 
 
   if (NR_RADIATION_ENABLED || IM_RADIATION_ENABLED) {
@@ -444,6 +427,10 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
     pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
   }
 
+  if (CRDIFFUSION_ENABLED) {
+    pcrdiff = new CRDiffusion(this, pin);
+    pbval->AdvanceCounterPhysID(CellCenteredBoundaryVariable::max_phys_id);
+  }
 
   // OrbitalAdvection: constructor depends on Coordinates, Hydro, Field, PassiveScalars.
   porb = new OrbitalAdvection(this, pin);
@@ -504,7 +491,6 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
           }
         }
       }
-      fre_ratio.DeleteAthenaArray();
       os += pnrrad->ir_gray.GetSizeInBytes();
     } else {
       std::memcpy(pnrrad->ir.data(), &(mbdata[os]), pnrrad->ir.GetSizeInBytes());
@@ -520,10 +506,25 @@ MeshBlock::MeshBlock(int igid, int ilid, Mesh *pm, ParameterInput *pin,
     std::memcpy(pcr->u_cr1.data(), &(mbdata[os]), pcr->u_cr1.GetSizeInBytes());
     os += pcr->u_cr.GetSizeInBytes();
   }
+
+  if (CRDIFFUSION_ENABLED) {
+    std::memcpy(pcrdiff->ecr.data(), &(mbdata[os]), pcrdiff->ecr.GetSizeInBytes());
+    os += pcrdiff->ecr.GetSizeInBytes();
+  }
+
   // (conserved variable) Passive scalars:
   if (NSCALARS > 0) {
     std::memcpy(pscalars->s.data(), &(mbdata[os]), pscalars->s.GetSizeInBytes());
     os += pscalars->s.GetSizeInBytes();
+    if (CHEMISTRY_ENABLED) {
+      std::memcpy(pscalars->h.data(), &(mbdata[os]), pscalars->h.GetSizeInBytes());
+      os += pscalars->h.GetSizeInBytes();
+    }
+  }
+
+  if (CHEMRADIATION_ENABLED) {
+    std::memcpy(pchemrad->ir.data(), &(mbdata[os]), pchemrad->ir.GetSizeInBytes());
+    os += pchemrad->ir.GetSizeInBytes();
   }
   // load user MeshBlock data
   for (int n=0; n<nint_user_meshblock_data_; n++) {
@@ -552,11 +553,14 @@ MeshBlock::~MeshBlock() {
   delete peos;
   delete porb;
   if (SELF_GRAVITY_ENABLED) delete pgrav;
-  if (SELF_GRAVITY_ENABLED == 2) delete pmg;
   if (NSCALARS > 0) delete pscalars;
+  if (CHEMRADIATION_ENABLED) {
+    delete pchemrad;
+  }
 
   if (NR_RADIATION_ENABLED || IM_RADIATION_ENABLED) delete pnrrad;
   if (CR_ENABLED) delete pcr;
+  if (CRDIFFUSION_ENABLED) delete pcrdiff;
 
   // BoundaryValues should be destructed AFTER all BoundaryVariable objects are destroyed
   delete pbval;
@@ -653,13 +657,22 @@ std::size_t MeshBlock::GetBlockSizeInBytes() {
   if (MAGNETIC_FIELDS_ENABLED)
     size += (pfield->b.x1f.GetSizeInBytes() + pfield->b.x2f.GetSizeInBytes()
              + pfield->b.x3f.GetSizeInBytes());
-  if (NSCALARS > 0)
+  if (NSCALARS > 0) {
     size += pscalars->s.GetSizeInBytes();
+    if (CHEMISTRY_ENABLED) {
+      size += pscalars->h.GetSizeInBytes();
+    }
+  }
+  if (CHEMRADIATION_ENABLED) {
+    size += pchemrad->ir.GetSizeInBytes();
+  }
 
   if (NR_RADIATION_ENABLED || IM_RADIATION_ENABLED)
     size += pnrrad->ir.GetSizeInBytes();
   if (CR_ENABLED)
     size += pcr->u_cr.GetSizeInBytes();
+  if (CRDIFFUSION_ENABLED)
+    size += pcrdiff->ecr.GetSizeInBytes();
 
   // calculate user MeshBlock data size
   for (int n=0; n<nint_user_meshblock_data_; n++)
@@ -694,6 +707,8 @@ std::size_t MeshBlock::GetBlockSizeInBytesGray() {
   }
   if (CR_ENABLED)
     size += pcr->u_cr.GetSizeInBytes();
+  if (CRDIFFUSION_ENABLED)
+    size += pcrdiff->ecr.GetSizeInBytes();
 
 
   // calculate user MeshBlock data size

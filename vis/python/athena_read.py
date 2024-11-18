@@ -619,7 +619,7 @@ def athdf(filename, raw=False, data=None, quantities=None, dtype=None, level=Non
             if nx == 1:
                 xm = (x1m, x2m, x3m)[d-1]
                 xp = (x1p, x2p, x3p)[d-1]
-                data[xf] = np.array([xm, xp], dtype=dtype)
+                data[xf] = np.array([xm, xp])
             else:
                 xmin = f.attrs['RootGridX' + repr(d)][0]
                 xmax = f.attrs['RootGridX' + repr(d)][1]
@@ -633,7 +633,7 @@ def athdf(filename, raw=False, data=None, quantities=None, dtype=None, level=Non
                     data[xf] = face_func(xmin, xmax, xrat_root, nx+1)
                 elif xrat_root == 1.0:
                     if np.all(levels == level):
-                        data[xf] = np.empty(nx + 1, dtype=dtype)
+                        data[xf] = np.empty(nx + 1)
                         for n_block in range(int((nx - 2*num_ghost)
                                                  // (block_size[d-1] - 2*num_ghost))):
                             sample_block = np.where(logical_locations[:, d-1]
@@ -645,15 +645,15 @@ def athdf(filename, raw=False, data=None, quantities=None, dtype=None, level=Non
                         if num_ghost > 0:
                             raise AthenaError('Cannot use ghost zones with different'
                                               + ' refinement levels')
-                        data[xf] = np.linspace(xmin, xmax, nx + 1, dtype=dtype)
+                        data[xf] = np.linspace(xmin, xmax, nx + 1)
                 else:
                     if num_ghost > 0:
                         raise AthenaError('Ghost zones incompatible with non-uniform'
                                           + ' coordinate spacing')
                     xrat = xrat_root ** (1.0 / 2**level)
-                    data[xf] = (xmin + (1.0-xrat**np.arange(nx+1, dtype=dtype))
+                    data[xf] = (xmin + (1.0-xrat**np.arange(nx+1))
                                 / (1.0-xrat**nx) * (xmax-xmin))
-            data[xv] = np.empty(nx, dtype=dtype)
+            data[xv] = np.empty(nx)
             for i in range(nx):
                 data[xv][i] = center_func(data[xf][i], data[xf][i+1])
 
@@ -772,14 +772,16 @@ def athdf(filename, raw=False, data=None, quantities=None, dtype=None, level=Non
                     block_data = f[dataset][index, block_num, :]
                     if s > 1:
                         if nx1 > 1:
-                            block_data = np.repeat(block_data, s, axis=2)
+                            block_data = np.repeat(block_data, s, axis=2)[:, :, il_s:iu_s]
                         if nx2 > 1:
-                            block_data = np.repeat(block_data, s, axis=1)
+                            block_data = np.repeat(block_data, s, axis=1)[:, jl_s:ju_s, :]
                         if nx3 > 1:
-                            block_data = np.repeat(block_data, s, axis=0)
-                    data[q][kl_d:ku_d, jl_d:ju_d, il_d:iu_d] = block_data[kl_s:ku_s,
-                                                                          jl_s:ju_s,
-                                                                          il_s:iu_s]
+                            block_data = np.repeat(block_data, s, axis=0)[kl_s:ku_s, :, :]
+                        data[q][kl_d:ku_d, jl_d:ju_d, il_d:iu_d] = block_data
+                    else:
+                        data[q][kl_d:ku_d, jl_d:ju_d, il_d:iu_d] = block_data[kl_s:ku_s,
+                                                                              jl_s:ju_s,
+                                                                              il_s:iu_s]
 
             # Restrict fine data
             else:
