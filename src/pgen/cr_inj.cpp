@@ -511,10 +511,10 @@ void Mesh::UserWorkInLoop(void)
             // std::cout << "Rank 0 Post Reduce elements: "<< global_nelements << " vs " << displacements[size-1]+ nLst[size-1] << std::endl;
           }
             // std::cout << "Start Gather" <<std::endl;
-            MPI_Gatherv(vecD.data(), nelements, MPI_DOUBLE, allD.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-            MPI_Gatherv(vecX1.data(), nelements, MPI_DOUBLE, allX1.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-            MPI_Gatherv(vecX2.data(), nelements, MPI_DOUBLE, allX2.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-            MPI_Gatherv(vecX3.data(), nelements, MPI_DOUBLE, allX3.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+          MPI_Gatherv(vecD.data(), nelements, MPI_DOUBLE, allD.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+          MPI_Gatherv(vecX1.data(), nelements, MPI_DOUBLE, allX1.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+          MPI_Gatherv(vecX2.data(), nelements, MPI_DOUBLE, allX2.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+          MPI_Gatherv(vecX3.data(), nelements, MPI_DOUBLE, allX3.data(), nLst, displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
             // std::cout << "End Gather" <<std::endl;
 //           } else {
 //             MPI_Gatherv(vecD.data(), nelements, MPI_FLOAT, NULL, NULL, NULL, MPI_FLOAT, 0, MPI_COMM_WORLD);
@@ -672,12 +672,13 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
         //INJECTION
         if (uniformInj != 1){
+
           Real x1 = pmb->pcoord->x1v(i);
           Real x2 = pmb->pcoord->x2v(j);
           Real x3 = pmb->pcoord->x3v(k);
-          Real dx1 = pmb->pcoord->dx1v(i+1);
-          Real dx2 = pmb->pcoord->dx2v(j+1);
-          Real dx3 = pmb->pcoord->dx3v(k+1);
+          Real dx1 = pmb->pcoord->dx1v(i);
+          Real dx2 = pmb->pcoord->dx2v(j);
+          Real dx3 = pmb->pcoord->dx3v(k);
           Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
           for (int m = 0 ; m < NInjs; ++m) {
             Real x10   = X1Inj[m];

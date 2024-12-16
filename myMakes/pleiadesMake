@@ -6,11 +6,11 @@ cd /home5/rhabegge/athena-roark/
 module load comp-intel
 module load mpi-hpe
 module load hdf5/1.8.18_mpt
-
 make clean
 make clean
 
-sh myConfs/cr_inj_conf.sh 
+# sh myConfs/cr_inj_conf.sh 
+sh myConfs/cr_icm.sh 
 
 make -j 28
 
