@@ -72,9 +72,12 @@ void Hydro::NewBlockTimeStep() {
   FluidFormulation fluid_status = pmb->pmy_mesh->fluid_setup;
   for (int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
+      // Obtain cell widths
       pmb->pcoord->CenterWidth1(k, j, is, ie, dt1);
       pmb->pcoord->CenterWidth2(k, j, is, ie, dt2);
       pmb->pcoord->CenterWidth3(k, j, is, ie, dt3);
+
+      // Newtonian case: divide cell widths by maximum characteristic speed
       if (!RELATIVISTIC_DYNAMICS) {
 #pragma ivdep
         for (int i=is; i<=ie; ++i) {
@@ -124,16 +127,33 @@ void Hydro::NewBlockTimeStep() {
         }
       }
 
+      // SR case: do nothing (assume maximum characteristic is c = 1)
+      // GR case: divide cell widths by coordinate speed of light (not necessarily unity)
+      if (GENERAL_RELATIVITY) {
+        pmb->pcoord->CellMetric(k, j, is, ie, g_, gi_);
+        for (int i=is; i<=ie; ++i) {
+          Real speed1 = -(std::sqrt(SQR(gi_(I01,i)) - gi_(I00,i) * gi_(I11,i))
+              + std::abs(gi_(I01,i))) / gi_(I00,i);
+          Real speed2 = -(std::sqrt(SQR(gi_(I02,i)) - gi_(I00,i) * gi_(I22,i))
+              + std::abs(gi_(I02,i))) / gi_(I00,i);
+          Real speed3 = -(std::sqrt(SQR(gi_(I03,i)) - gi_(I00,i) * gi_(I33,i))
+              + std::abs(gi_(I03,i))) / gi_(I00,i);
+          dt1(i) /= speed1;
+          dt2(i) /= speed2;
+          dt3(i) /= speed3;
+        }
+      }
+
       // compute minimum of (v1 +/- C)
       for (int i=is; i<=ie; ++i) {
-        Real& dt_1 = dt1(i);
+        const Real& dt_1 = dt1(i);
         min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_1);
       }
 
       // if grid is 2D/3D, compute minimum of (v2 +/- C)
       if (pmb->block_size.nx2 > 1) {
         for (int i=is; i<=ie; ++i) {
-          Real& dt_2 = dt2(i);
+          const Real& dt_2 = dt2(i);
           min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_2);
         }
       }
@@ -141,7 +161,7 @@ void Hydro::NewBlockTimeStep() {
       // if grid is 3D, compute minimum of (v3 +/- C)
       if (pmb->block_size.nx3 > 1) {
         for (int i=is; i<=ie; ++i) {
-          Real& dt_3 = dt3(i);
+          const Real& dt_3 = dt3(i);
           min_dt_hyperbolic = std::min(min_dt_hyperbolic, dt_3);
         }
       }

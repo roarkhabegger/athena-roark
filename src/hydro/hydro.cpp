@@ -116,7 +116,6 @@ Hydro::Hydro(MeshBlock *pmb, ParameterInput *pin) :
   }
   cell_volume_.NewAthenaArray(nc1);
   dflx_.NewAthenaArray(NHYDRO, nc1);
-  dflx3D_.NewAthenaArray(NHYDRO, nc3, nc2, nc1);
   if (MAGNETIC_FIELDS_ENABLED && RELATIVISTIC_DYNAMICS) { // only used in (SR/GR)MHD
     bb_normal_.NewAthenaArray(nc1);
   }

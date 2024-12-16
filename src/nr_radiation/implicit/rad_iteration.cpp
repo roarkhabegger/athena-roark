@@ -36,6 +36,7 @@
 //--------------------------------------------------------------------------------------
 // \!fn void Iteration()
 // \brief function to perform iterations
+
 void IMRadiation::Iteration(
     Mesh *pm, TimeIntegratorTaskList *ptlist, int stage) {
   // perform Jacobi iteration including both source and flux terms
@@ -110,7 +111,7 @@ void IMRadiation::Iteration(
     if (srj_p > 0)
       omega = srj_w[0];
 
-    while(iteration) {
+    while (iteration) {
       // initialize the pointer
       pmb = pm->my_blocks(0);
       sum_full_ = 0.0;
@@ -205,8 +206,8 @@ void IMRadiation::Iteration(
 void IMRadiation::CheckResidual(MeshBlock *pmb,
                                 AthenaArray<Real> &ir_old, AthenaArray<Real> &ir_new) {
   NRRadiation *prad = pmb->pnrrad;
-  int &nang =prad->nang;
-  int &nfreq=prad->nfreq;
+  const int& nang =prad->nang;
+  const int& nfreq=prad->nfreq;
   int is = pmb->is; int js = pmb->js; int ks = pmb->ks;
   int ie = pmb->ie; int je = pmb->je; int ke = pmb->ke;
 

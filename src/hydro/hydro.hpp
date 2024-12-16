@@ -64,18 +64,14 @@ class Hydro {
 
   // functions
   void NewBlockTimeStep();    // computes new timestep on a MeshBlock
-  void AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out, 
-                         FaceField &b, AthenaArray<Real> &bcc, Real g);
+  void AddFluxDivergence(const Real wght, AthenaArray<Real> &u_out);
   void AddFluxDivergence_STS(const Real wght, int stage,
                              AthenaArray<Real> &u_out,
                              AthenaArray<Real> &fl_div_out,
                              std::vector<int> idx_subset);
   void CalculateFluxes(AthenaArray<Real> &w, FaceField &b,
                        AthenaArray<Real> &bcc, const int order);
-  void FirstOrderFluxes(AthenaArray<Real> &w,FaceField &b, AthenaArray<Real> &bcc, 
-                        int is, int js, int ks, int ie, int je, int ke);
   void CalculateFluxes_STS();
-
 #if !MAGNETIC_FIELDS_ENABLED  // Hydro:
   void RiemannSolver(
       const int k, const int j, const int il, const int iu,
@@ -103,14 +99,13 @@ class Hydro {
   // 2D
   AthenaArray<Real> wl_, wr_, wlb_;
   AthenaArray<Real> dflx_;
-  AthenaArray<Real> dflx3D_;
   AthenaArray<Real> bb_normal_;    // normal magnetic field, for (SR/GR)MHD
   AthenaArray<Real> lambdas_p_l_;  // most positive wavespeeds in left state
   AthenaArray<Real> lambdas_m_l_;  // most negative wavespeeds in left state
   AthenaArray<Real> lambdas_p_r_;  // most positive wavespeeds in right state
   AthenaArray<Real> lambdas_m_r_;  // most negative wavespeeds in right state
   // 2D GR
-  AthenaArray<Real> g_, gi_;       // metric and inverse, for some GR Riemann solvers
+  AthenaArray<Real> g_, gi_;       // metric and inverse, for timesteps and some rsolvers
   AthenaArray<Real> cons_;         // conserved state, for some GR Riemann solvers
 
   // fourth-order hydro
