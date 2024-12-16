@@ -1,0 +1,14 @@
+python3 configure.py \
+ --prob=cr_icm \
+ --nghost=4 \
+ --eos="adiabatic" \
+ -b \
+ -fft \
+ --fftw_path="/home5/rhabegge/miniconda3" \
+ -cr \
+ -hdf5 \
+ -mpi \
+ -h5double \
+ --mpiccmd=h5pcc \
+ --cflag='-DH5_HAVE_PARALLEL -lstdc++' \
+ --cxx='g++'
