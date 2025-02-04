@@ -57,7 +57,7 @@ const double T_scale = m_scale*v_scale*v_scale/k_B;
 const double B_scale = 4*PI*sqrt(e_scale);
 const double lamb_scale = e_scale/(t_scale*n_scale*n_scale);
 
-double totalVolume;
+// double totalVolume;
 
 double sigmaParl, sigmaPerp; //CR diffusion 
                            //decouple parallel (to local B field) and perpendicular diffusion coefficients
@@ -67,6 +67,10 @@ Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR ener
 int cooling_flag;
 int heating_flag;
 Real turb_dedt;
+
+static Real f_i, T_f_i, dT_f_i;
+static Real decouple ;
+
 
 // Cooling Function parameters: 
 // Tupper   [2.e+03 8.e+03 1.e+05 4.e+07 1.e+10] K
@@ -129,13 +133,219 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                AthenaArray<Real> &cons_scalar);
               
 
-void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
 
+void Streaming(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+             AthenaArray<Real> &prim, AthenaArray<Real> &bcc,
+             AthenaArray<Real> &grad_pc, int k, int j, int is, int ie);
+
+Real TotalHeating(MeshBlock *pmb, int iout);
+
+Real Ec_source(MeshBlock *pmb,int iout);
+
+Real correlation(MeshBlock *pmb,int iout);
+Real div_correlation(MeshBlock *pmb,int iout);
+// Real Correlation(MeshBlock *pmb, int iout);
+
+Real TotalHeating(MeshBlock *pmb, int iout){
+  // Real heat=0;
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+  Real pfloor = pmb->peos->GetPressureFloor();
+  Real dfloor = pmb->peos->GetDensityFloor();
+  Real Tfloor = Tlows[0]/T_scale;
+  double gm1 = pmb->peos->GetGamma()-1.0;
+
+  double totdE = 0.0;
+  double totV = 0.0;
+  
+  AthenaArray<Real> &cons = pmb->phydro->u;
+  AthenaArray<Real> &bcc = pmb->pfield->bcc;
+  Real dt = pmb->pmy_mesh->dt;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        double d = cons(IDN,k,j,i);
+        double p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
+
+        if ((d> dfloor) && (p> pfloor) ) {
+          double T = p/d;
+          if ((T > Tfloor)){
+            double time0 = t_scale*gm1*d*n_scale*LN/(k_B*Tmax);
+            double newT = invTEF(TEF(T) + dt*time0);
+            double dE = d*(newT-T)/gm1;
+            totdE += -1*dE * pmb->pcoord->GetCellVolume(k,j,i);
+            totV += pmb->pcoord->GetCellVolume(k,j,i);
+          }
+        }
+      }
+    }
+  }
+  Real heat = totdE / totV;
+  if (iout == 0) return totdE;
+  if (iout == 1) return totV;
+  
+  return heat;
+}
+
+Real Ec_source(MeshBlock *pmb, int iout){
+  // Real heat=0;
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+  // Real pfloor = pmb->peos->GetPressureFloor();
+  // Real dfloor = pmb->peos->GetDensityFloor();
+  // Real Tfloor = Tlows[0]/T_scale;
+  // double gm1 = pmb->peos->GetGamma()-1.0;
+
+  double totdE = 0.0;
+  
+  AthenaArray<Real> &cons = pmb->phydro->u;
+  AthenaArray<Real> &prim = pmb->phydro->w;
+  AthenaArray<Real> &bcc = pmb->pfield->bcc;
+  AthenaArray<Real> &u_cr = pmb->pcr->u_cr;
+  
+  Real dt = pmb->pmy_mesh->dt;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        Real dens = cons(IDN,k,j,i);
+        Real v_1, v_2, v_3 = 0.0;
+        if (iout==2){
+          v_1 = cons(IM1,k,j,i)/dens;
+          v_2 = cons(IM2,k,j,i)/dens;
+          v_3 = cons(IM3,k,j,i)/dens;
+        } else if (iout == 3){
+          Real Temp = prim(IPR,k,j,i)/prim(IDN,k,j,i);
+          Real switch_func = 0.5*(1+std::tanh( (Temp - T_f_i)/dT_f_i));
+          Real my_fi = (1-f_i)*switch_func + f_i;
+          // Real my_fi = std::pow(10,(1-std::log10(f_i))*switch_func + std::log10(f_i));
+          Real inv_sqrt_rho = 1.0/std::sqrt(cons(IDN,k,j,i) * my_fi);
+          v_1 = bcc(IB1,k,j,i)*inv_sqrt_rho;
+          v_2 = bcc(IB2,k,j,i)*inv_sqrt_rho;
+          v_3 = bcc(IB3,k,j,i)*inv_sqrt_rho;
+        }
+
+        Real grad_1 = (1.0/3.0)/pmb->pcoord->GetEdge1Length(k,j,i);
+        Real grad_2 = (1.0/3.0)/pmb->pcoord->GetEdge2Length(k,j,i);
+        Real grad_3 = (1.0/3.0)/pmb->pcoord->GetEdge3Length(k,j,i);
+        if (v_1 > 0){
+          grad_1 *= u_cr(CRE,k,j,i+1) - u_cr(CRE,k,j,i);
+        } else {
+          grad_1 *= u_cr(CRE,k,j,i) - u_cr(CRE,k,j,i-1);
+        }
+        if (v_2 > 0){
+          grad_2 *= u_cr(CRE,k,j+1,i) - u_cr(CRE,k,j,i);
+        } else {
+          grad_2 *= u_cr(CRE,k,j,i) - u_cr(CRE,k,j-1,i);
+        }
+        if (v_3 > 0){
+          grad_3 *= u_cr(CRE,k+1,j,i) - u_cr(CRE,k,j,i);
+        } else {
+          grad_3 *= u_cr(CRE,k,j,i) - u_cr(CRE,k-1,j,i);
+        }
+        if (iout==2){
+          totdE += grad_1 * v_1 + grad_2 * v_2 + grad_3 * v_3  ;
+        } else if (iout == 3){
+          totdE += std::abs(grad_1 * v_1) + std::abs(grad_2 * v_2) + std::abs(grad_3 * v_3)  ;
+        }
+        
+      }
+    }
+  }
+  
+  return totdE;
+}
+
+Real correlation(MeshBlock *pmb, int iout){
+
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+
+  double corr = 0.0;
+  double var1 = 0.0;
+  double var2 = 0.0;
+  double vol_tot = 0.0;
+  
+  AthenaArray<Real> &cons = pmb->phydro->u;
+  AthenaArray<Real> &bcc = pmb->pfield->bcc;
+  AthenaArray<Real> &u_cr = pmb->pcr->u_cr;
+  Real dt = pmb->pmy_mesh->dt;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        Real vol = pmb->pcoord->GetCellVolume(k,j,i);
+        Real dens = cons(IDN,k,j,i);
+        Real cr_e = u_cr(CRE,k,j,i);
+        var1 += dens * vol;
+        var2 += cr_e * vol;
+        corr += cr_e*dens*vol;
+        vol_tot += vol;
+      }
+    }
+  }
+  Real out = 0.0;
+  if (iout==4){ 
+    out = corr / (var1 * var2) * vol_tot;
+  }
+  else if(iout==5){
+    // using hadronic loss rate from Guo & Oh 2008 of -5.86e-16 erg s^-1 cm^-3 into L_sun
+    out = corr* 7192.30777903 ;
+  } else if (iout==6){
+    out = corr * crLoss;
+  }
+  return out;
+}
+Real div_correlation(MeshBlock *pmb, int iout){
+
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+
+  double corr = 0.0;
+  double var1 = 0.0;
+  double var2 = 0.0;
+  double vol_tot = 0.0;
+  
+  AthenaArray<Real> &cons = pmb->phydro->u;
+  AthenaArray<Real> &bcc = pmb->pfield->bcc;
+  AthenaArray<Real> &u_cr = pmb->pcr->u_cr;
+  Real dt = pmb->pmy_mesh->dt;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        Real vol = pmb->pcoord->GetCellVolume(k,j,i);
+        Real face1 = pmb->pcoord->GetFace1Area(k,j,i);
+        Real face2 = pmb->pcoord->GetFace2Area(k,j,i);
+        Real face3 = pmb->pcoord->GetFace3Area(k,j,i);
+
+        Real vel1_0 = cons(IM1,k,j,i) / cons(IDN,k,j,i) ;
+        Real vel2_0 = cons(IM2,k,j,i) / cons(IDN,k,j,i) ;
+        Real vel3_0 = cons(IM3,k,j,i) / cons(IDN,k,j,i) ;
+
+        Real vel1_m1 = 0.5*(cons(IM1,k,j,i-1) / cons(IDN,k,j,i-1) + vel1_0);
+        Real vel2_m1 = 0.5*(cons(IM2,k,j-1,i) / cons(IDN,k,j-1,i) + vel2_0) ;
+        Real vel3_m1 = 0.5*(cons(IM3,k-1,j,i) / cons(IDN,k-1,j,i) + vel3_0) ;
+
+        Real vel1_p1 = 0.5*(cons(IM1,k,j,i+1) / cons(IDN,k,j,i+1) + vel1_0) ;
+        Real vel2_p1 = 0.5*(cons(IM2,k,j+1,i) / cons(IDN,k,j+1,i) + vel2_0) ;
+        Real vel3_p1 = 0.5*(cons(IM3,k+1,j,i) / cons(IDN,k+1,j,i) + vel3_0) ;
+
+    
+        Real cr_p = u_cr(CRE,k,j,i)*(1.0/3.0 );
+        Real myDiv = ((vel1_p1 - vel1_m1)*face1 + (vel2_p1 - vel2_m1)*face2 + (vel3_p1 - vel3_m1)*face3)/vol;
+        corr += cr_p*myDiv;
+        vol_tot += vol;
+      }
+    }
+  }
+  Real out = corr / vol_tot;
+  return out;
+}
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
-    pcr->EnrollOpacityFunction(Diffusion);
+    pcr->EnrollOpacityFunction(Opacity);
+    pcr->EnrollStreamingFunction(Streaming);
     bool lossFlag = (pin->GetOrAddReal("problem","crLoss",0.0) > 0.0);
     if (lossFlag) {
         pcr->EnrollUserCRSource(CRSource);
@@ -147,10 +357,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank); //Just for print statements
 
-  Real dx =  (pin->GetReal("mesh","x1max") -  pin->GetReal("mesh","x1min") );
-  Real dy =  (pin->GetReal("mesh","x2max") -  pin->GetReal("mesh","x2min") );
-  Real dz =  (pin->GetReal("mesh","x3max") -  pin->GetReal("mesh","x3min") );
-  totalVolume = dx*dy*dz;
+  // Real dx =  (pin->GetReal("mesh","x1max") -  pin->GetReal("mesh","x1min") );
+  // Real dy =  (pin->GetReal("mesh","x2max") -  pin->GetReal("mesh","x2min") );
+  // Real dz =  (pin->GetReal("mesh","x3max") -  pin->GetReal("mesh","x3min") );
+  // totalVolume = dx*dy*dz;
 
   turb_dedt = pin->GetOrAddReal("turbulence","dedt",0.0);
   
@@ -161,7 +371,12 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real kappaParl = pin->GetOrAddReal("cr","kappaParl",3e28)/(v_scale*l_scale) ;
     sigmaPerp = vmax/(3*kappaPerp);
     sigmaParl = vmax/(3*kappaParl);
+    f_i = pin->GetOrAddReal("cr","f_i",1);
+    T_f_i = pin->GetOrAddReal("cr","T_f_i",10000)/T_scale;
+    dT_f_i = pin->GetOrAddReal("cr","dT_f_i",1000)/T_scale;
+    decouple = pin->GetOrAddReal("cr","A_decouple",1);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
+
     if (rank == 0){
       std::cout << "Vmax = " << vmax / (c / (v_scale)) << " c" << std::endl;
       std::cout << "sigmaParl = " << sigmaParl << std::endl;
@@ -187,6 +402,16 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     return;
 #endif
   }
+
+  AllocateUserHistoryOutput(7);
+  EnrollUserHistoryOutput(0, TotalHeating, "totdE_heat");
+  EnrollUserHistoryOutput(1, TotalHeating, "totV_heat");
+  EnrollUserHistoryOutput(2, Ec_source, "totdE_cr_u");
+  EnrollUserHistoryOutput(3, Ec_source, "totdE_cr_vs");
+  EnrollUserHistoryOutput(4, correlation, "corr_rho_ec");
+  EnrollUserHistoryOutput(5, correlation, "Lgamma_Lsun");
+  EnrollUserHistoryOutput(6, correlation, "CR_Loss_Rate");
+  // EnrollUserHistoryOutput(7, div_correlation, "corr_pc_div");
   return;
 }
 
@@ -286,8 +511,8 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
     for (int j=pmb->js; j<=pmb->je; ++j) {
   #pragma omp simd
       for (int i=pmb->is; i<=pmb->ie; ++i) {
-        //CRLoss Term
-        u_cr(CRE,k,j,i) -= crLoss*dt*u_cr(CRE,k,j,i);
+        //CRLoss Term Note that crLoss is zeta_cr total loss rate cm^3/s in computational units
+        u_cr(CRE,k,j,i) -= crLoss*dt*u_cr(CRE,k,j,i)*prim(IDN,k,j,i);
       }
     }
   }
@@ -302,9 +527,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   const Real gm1  = peos->GetGamma() - 1.0;
   
   const Real invbeta = pin->GetOrAddReal("problem","invbeta",0.0);
-  const Real b0 = sqrt(2*invbeta*pres); //mean field strength
-  const Real angle = (PI/180.0)*pin->GetOrAddReal("problem","angle",0.0);
-
+  const Real dBrat = pin->GetOrAddReal("problem","delta_B_over_B",0.0);
+  const Real bx_0 = sqrt(2*invbeta*pres/(1+SQR(dBrat))); //mean field strength
+  const Real b_amp = dBrat*bx_0;
   const Real invbetaCR = pin->GetOrAddReal("problem","invbetaCR",0.0);
   const Real crp = pres*invbetaCR;
 
@@ -354,13 +579,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       }
     }
   }
-  // Add horizontal magnetic field lines, to show streaming and diffusion
-  // along magnetic field ines
+
+  
   if (MAGNETIC_FIELDS_ENABLED) {
+
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
-          pfield->b.x1f(k,j,i) = b0* std::cos(angle);
+          pfield->b.x1f(k,j,i) = bx0;
         }
       }
     }
@@ -368,7 +594,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int k=ks; k<=ke; ++k) {
         for (int j=js; j<=je+1; ++j) {
           for (int i=is; i<=ie; ++i) {
-            pfield->b.x2f(k,j,i) = b0* std::sin(angle);
+            pfield->b.x2f(k,j,i) =0.0 ;
           }
         }
       }
@@ -401,7 +627,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   return;
 }
 
-void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+
+void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
                AthenaArray<Real> &prim, AthenaArray<Real> &bcc) {
   // set the default opacity to be a large value in the default hydro case
   CosmicRay *pcr=pmb->pcr;
@@ -421,7 +648,7 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
     for(int j=jl; j<=ju; ++j) {
 #pragma omp simd
       for(int i=il; i<=iu; ++i) {
-        pcr->sigma_diff(0,k,j,i) = sigmaParl; //sigma_diff is defined with x0 coordinate parallel to local B field
+        pcr->sigma_diff(0,k,j,i) = sigmaParl;
         pcr->sigma_diff(1,k,j,i) = sigmaPerp;
         pcr->sigma_diff(2,k,j,i) = sigmaPerp;
       }
@@ -491,34 +718,48 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
           Real pb= bcc(IB1,k,j,i)*bcc(IB1,k,j,i)
                   +bcc(IB2,k,j,i)*bcc(IB2,k,j,i)
                   +bcc(IB3,k,j,i)*bcc(IB3,k,j,i);
-          Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i));
+          Real Temp = prim(IPR,k,j,i)/prim(IDN,k,j,i);
+          Real switch_func = 0.5*(1+std::tanh( (Temp - T_f_i)/dT_f_i));
+          Real my_fi = (1-f_i)*switch_func + f_i;
+          // Real my_fi = std::pow(10,(1-std::log10(f_i))*switch_func + std::log10(f_i));
+          Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i) * my_fi);
           Real va1 = bcc(IB1,k,j,i)*inv_sqrt_rho;
           Real va2 = bcc(IB2,k,j,i)*inv_sqrt_rho;
           Real va3 = bcc(IB3,k,j,i)*inv_sqrt_rho;
 
-          Real va = std::sqrt(pb/prim(IDN,k,j,i));
+
+          Real va = std::sqrt(SQR(va1) + SQR(va2) + SQR(va3));
 
           Real dpc_sign = 0.0;
           if (pcr->b_grad_pc(k,j,i) > TINY_NUMBER) dpc_sign = 1.0;
           else if (-pcr->b_grad_pc(k,j,i) > TINY_NUMBER) dpc_sign = -1.0;
-
-          pcr->v_adv(0,k,j,i) = -va1 * dpc_sign;
-          pcr->v_adv(1,k,j,i) = -va2 * dpc_sign;
-          pcr->v_adv(2,k,j,i) = -va3 * dpc_sign;
-
-          // now the diffusion coefficient
-
-          if (va < TINY_NUMBER) {
-            pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
+          if (pcr->stream_flag > 0) {
+            pcr->v_adv(0,k,j,i) = -va1 * dpc_sign;
+            pcr->v_adv(1,k,j,i) = -va2 * dpc_sign;
+            pcr->v_adv(2,k,j,i) = -va3 * dpc_sign;
           } else {
-            pcr->sigma_adv(0,k,j,i) = std::abs(pcr->b_grad_pc(k,j,i))
-                          /(std::sqrt(pb)* va * (1.0 + 1.0/3.0)
-                                    * invlim * u_cr(CRE,k,j,i));
+            pcr->v_adv(0,k,j,i) = 0.0;
+            pcr->v_adv(1,k,j,i) = 0.0;
+            pcr->v_adv(2,k,j,i) = 0.0;
           }
 
-          pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
-          pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;
+          // now the diffusion coefficient
+          if (pcr->stream_flag > 0) {
+            if (va < TINY_NUMBER) {
+              pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
+            } else {
+              pcr->sigma_adv(0,k,j,i) = std::abs(pcr->b_grad_pc(k,j,i))
+                            /(std::sqrt(pb)* va * decouple * (1.0 + 1.0/3.0)
+                                      * invlim * u_cr(CRE,k,j,i));
+            }
 
+            pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
+            pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;
+          } else {
+            pcr->sigma_adv(0,k,j,i)  = pcr->max_opacity;
+            pcr->sigma_adv(1,k,j,i)  = pcr->max_opacity;
+            pcr->sigma_adv(2,k,j,i)  = pcr->max_opacity;
+          }
           // Now calculate the angles of B
           Real bxby = std::sqrt(bcc(IB1,k,j,i)*bcc(IB1,k,j,i) +
                            bcc(IB2,k,j,i)*bcc(IB2,k,j,i));
@@ -540,38 +781,56 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         }
       }
     }
-  } else {
-  for(int k=kl; k<=ku; ++k) {
-    for(int j=jl; j<=ju; ++j) {
-  // x component
-      pmb->pcoord->CenterWidth1(k,j,il-1,iu+1,pcr->cwidth);
-      for(int i=il; i<=iu; ++i) {
-         Real distance = 0.5*(pcr->cwidth(i-1) + pcr->cwidth(i+1))
-                        + pcr->cwidth(i);
-         Real grad_pr=(u_cr(CRE,k,j,i+1) - u_cr(CRE,k,j,i-1))/3.0;
-         grad_pr /= distance;
-         Real va = 0.0;
-         if (va < TINY_NUMBER) {
-           pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
-           pcr->v_adv(0,k,j,i) = 0.0;
-         } else {
-           Real sigma2 = std::abs(grad_pr)/(va * (1.0 + 1.0/3.0)
-                             * invlim * u_cr(CRE,k,j,i));
-           if (std::abs(grad_pr) < TINY_NUMBER) {
-             pcr->sigma_adv(0,k,j,i) = 0.0;
-             pcr->v_adv(0,k,j,i) = 0.0;
-           } else {
-             pcr->sigma_adv(0,k,j,i) = sigma2;
-             pcr->v_adv(0,k,j,i) = -va * grad_pr/std::abs(grad_pr);
-           }
-        }
+  }
+}
+
+void Streaming(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+             AthenaArray<Real> &prim, AthenaArray<Real> &bcc,
+             AthenaArray<Real> &grad_pc, int k, int j, int is, int ie) {
+  CosmicRay *pcr=pmb->pcr;
+  Real invlim = 1.0/pcr->vmax;
+
+  for(int i=is; i<=ie; ++i) {
+    Real Temp = prim(IPR,k,j,i)/prim(IDN,k,j,i);
+    Real switch_func = 0.5*(1+std::tanh( (Temp - T_f_i)/dT_f_i));
+    Real my_fi = (1-f_i)*switch_func + f_i;
+    // Real my_fi = std::pow(10,(1-std::log10(f_i))*switch_func + std::log10(f_i));
+    Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i) * my_fi);
+    Real bsq = bcc(IB1,k,j,i)*bcc(IB1,k,j,i)
+              +bcc(IB2,k,j,i)*bcc(IB2,k,j,i)
+              +bcc(IB3,k,j,i)*bcc(IB3,k,j,i);
+
+    Real b_grad_pc = bcc(IB1,k,j,i) * grad_pc(0,k,j,i)
+                   + bcc(IB2,k,j,i) * grad_pc(1,k,j,i)
+                   + bcc(IB3,k,j,i) * grad_pc(2,k,j,i);
+
+    Real va1 = bcc(IB1,k,j,i) * inv_sqrt_rho;
+    Real va2 = bcc(IB2,k,j,i) * inv_sqrt_rho;
+    Real va3 = bcc(IB3,k,j,i) * inv_sqrt_rho;
+
+    Real va = std::sqrt(bsq) * inv_sqrt_rho;
+    Real dpc_sign = 0.0;
+
+    if (b_grad_pc > TINY_NUMBER) dpc_sign = 1.0;
+    else if (-b_grad_pc > TINY_NUMBER) dpc_sign = -1.0;
+
+    if (pcr->stream_flag > 0) {
+      pcr->v_adv(0,k,j,i) = -va1 * dpc_sign;
+      pcr->v_adv(1,k,j,i) = -va2 * dpc_sign;
+      pcr->v_adv(2,k,j,i) = -va3 * dpc_sign;
+      if (va > TINY_NUMBER) {
+        pcr->sigma_adv(0,k,j,i) = std::abs(b_grad_pc)/(std::sqrt(bsq) * va * decouple *
+                               (4.0/3.0) * invlim * u_cr(CRE,k,j,i));
         pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
         pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;
-
-        pcr->v_adv(1,k,j,i) = 0.0;
-        pcr->v_adv(2,k,j,i) = 0.0;
       }
+    } else {
+      pcr->v_adv(0,k,j,i) = 0.0;
+      pcr->v_adv(1,k,j,i) = 0.0;
+      pcr->v_adv(2,k,j,i) = 0.0;
+      pcr->sigma_adv(0,k,j,i)  = pcr->max_opacity;
+      pcr->sigma_adv(1,k,j,i)  = pcr->max_opacity;
+      pcr->sigma_adv(2,k,j,i)  = pcr->max_opacity;
     }
-  }
   }
 }

@@ -30,6 +30,7 @@
 #include "../../parameter_input.hpp"
 #include "../../reconstruct/reconstruction.hpp"
 #include "../../utils/utils.hpp"
+#include "../../eos/eos.hpp"
 #include "../cr.hpp"
 
 // class header
@@ -514,11 +515,13 @@ void CRIntegrator::FluxDivergence(const Real wght, AthenaArray<Real> &cr_out) {
           cr_out(n,k,j,i) += wght * coord_source_(n,k,j,i);
 
   // check Ec is positive
+  Real ec_floor = 3*pmb->peos->GetPressureFloor();
   for (int k=ks; k<=ke; ++k)
     for (int j=js; j<=je; ++j)
 #pragma omp simd
       for (int i=is; i<=ie; ++i) {
-        if (cr_out(CRE,k,j,i) < TINY_NUMBER)
-          cr_out(CRE,k,j,i) = TINY_NUMBER;
+        
+        if (cr_out(CRE,k,j,i) < ec_floor)
+          cr_out(CRE,k,j,i) = ec_floor;
       }
 }

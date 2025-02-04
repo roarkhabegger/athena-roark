@@ -1,0 +1,12 @@
+python3 configure.py \
+ --prob=cr_icm \
+ --nghost=4 \
+ --eos="adiabatic" \
+ --flux=lhlld \
+ -b \
+ -fft \
+ -cr \
+ -hdf5 \
+ --hdf5_path="/sw/spack/deltas11-2023-03/apps/linux-rhel8-zen3/gcc-11.4.0/hdf5-1.14.3-7b3feas" \
+ -mpi \
+ -h5double 
