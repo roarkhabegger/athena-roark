@@ -39,6 +39,7 @@
 #include "../eos/eos.hpp"
 #include "../fft/athena_fft.hpp"
 #include "../fft/turbulence.hpp"
+#include "../fft/turbfield.hpp"
 #include "../field/field.hpp"
 #include "../field/field_diffusion/field_diffusion.hpp"
 #include "../globals.hpp"
@@ -564,6 +565,8 @@ Mesh::Mesh(ParameterInput *pin, int mesh_test) :
 
   if (turb_flag > 0) // TurbulenceDriver depends on the MeshBlock ctor
     ptrbd = new TurbulenceDriver(this, pin);
+  if (pin->GetOrAddReal("randBfield", "dB",-1.0) > 0.0) 
+    ptrfd = new RandFieldDriver(this, pin);
 }
 
 //----------------------------------------------------------------------------------------
@@ -1540,6 +1543,11 @@ void Mesh::Initialize(int res_flag, ParameterInput *pin) {
     if (((turb_flag == 1) || (turb_flag == 2)) && (res_flag == 0))
       ptrbd->Driving();
 
+    if (pin->GetOrAddReal("randBfield", "dB",-1.0) > 0.0) 
+      ptrfd->Driving();
+
+
+    
     //initialize ODE solver for chemistry
     if (CHEMISTRY_ENABLED) {
       for (int i=0; i<nblocal; ++i) {

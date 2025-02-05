@@ -527,8 +527,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   const Real gm1  = peos->GetGamma() - 1.0;
   
   const Real invbeta = pin->GetOrAddReal("problem","invbeta",0.0);
-  const Real dBrat = pin->GetOrAddReal("problem","delta_B_over_B",0.0);
-  const Real bx_0 = sqrt(2*invbeta*pres/(1+SQR(dBrat))); //mean field strength
+  const Real dBrat = pin->GetOrAddReal("randBfield", "dB",0.0);
+  const Real bx_0 = 2*sqrt(std::max(invbeta*pres-0.5*SQR(dBrat),0.0)); //mean field strength
   const Real b_amp = dBrat*bx_0;
   const Real invbetaCR = pin->GetOrAddReal("problem","invbetaCR",0.0);
   const Real crp = pres*invbetaCR;
@@ -586,7 +586,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
-          pfield->b.x1f(k,j,i) = bx0;
+          pfield->b.x1f(k,j,i) = bx_0;
         }
       }
     }

@@ -144,6 +144,7 @@ class FFTBlock {
   Real dkx[3], dx1, dx2, dx3;
 
   friend class TurbulenceDriver;
+  friend class RandFieldDriver;
   friend class FFTDriver;
   friend class Mesh;
 

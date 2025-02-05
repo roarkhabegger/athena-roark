@@ -57,13 +57,14 @@ class MGGravityDriver;
 class FFTDriver;
 class FFTGravityDriver;
 class TurbulenceDriver;
+class RandFieldDriver;
 class ChemRadiation;
 class OrbitalAdvection;
 class Particles;
 class PassiveScalars;
 class NRRadiation;
 class IMRadiation;
-class TurbulenceDriver;
+// class TurbulenceDriver;
 
 FluidFormulation GetFluidFormulation(const std::string& input_string);
 
@@ -223,6 +224,7 @@ class Mesh {
   friend class FFTDriver;
   friend class FFTGravityDriver;
   friend class TurbulenceDriver;
+  friend class RandFieldDriver;
   friend class MultigridDriver;
   friend class MGGravityDriver;
   friend class MGCRDiffusionDriver;
@@ -271,6 +273,7 @@ class Mesh {
   AthenaArray<MeshBlock*> my_blocks;
 
   TurbulenceDriver *ptrbd;
+  RandFieldDriver *ptrfd;
   FFTGravityDriver *pfgrd;
   MGGravityDriver *pmgrd;
   MGCRDiffusionDriver *pmcrd;
