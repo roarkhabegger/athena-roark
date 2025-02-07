@@ -55,6 +55,7 @@ void CRIntegrator::AddSourceTerms(MeshBlock *pmb, const Real dt, AthenaArray<Rea
   Real vlim = pcr->vmax;
   Real invlim = 1.0/vlim;
   Real rho_floor = pmb->peos->GetDensityFloor();
+  Real ec_floor = 3*pmb->peos->GetPressureFloor();
 
   int is = pmb->is; int js = pmb->js; int ks = pmb->ks;
   int ie = pmb->ie; int je = pmb->je; int ke = pmb->ke;
@@ -199,7 +200,7 @@ void CRIntegrator::AddSourceTerms(MeshBlock *pmb, const Real dt, AthenaArray<Rea
            u(IM2,k,j,i) += (-(newfr2 - fc2[i]) * invlim);
            u(IM3,k,j,i) += (-(newfr3 - fc3[i]) * invlim);
          }
-         u_cr(CRE,k,j,i) = new_ec;
+         u_cr(CRE,k,j,i) = std::max(new_ec,ec_floor);
          u_cr(CRF1,k,j,i) = newfr1;
          u_cr(CRF2,k,j,i) = newfr2;
          u_cr(CRF3,k,j,i) = newfr3;

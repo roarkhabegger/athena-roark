@@ -45,26 +45,37 @@
 //  \brief cosmic ray diffusion test
 //======================================================================================
 
-static Real sigma = 1.e3;
+static Real sigma;
+static Real f_i;
+static Real decouple ;
 
-
-void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
 
+void Streaming(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+             AthenaArray<Real> &prim, AthenaArray<Real> &bcc,
+             AthenaArray<Real> &grad_pc, int k, int j, int is, int ie);
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
-    pcr->EnrollOpacityFunction(Diffusion);
+    pcr->EnrollOpacityFunction(Opacity);
+    pcr->EnrollStreamingFunction(Streaming);
   }
 }
+
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   // read in the mean velocity, diffusion coefficient
   Real vmax = pcr->vmax;
-  Real kappa = pin->GetOrAddReal("problem","kappa",1.e-3);
+  Real kappa = pin->GetOrAddReal("cr","kappa",1);
   sigma = vmax/(3*kappa);
-  Real b0 = pin->GetOrAddReal("problem","b0",1);
+  Real beta = pin->GetOrAddReal("problem","beta",1);
+  Real beta_cr = pin->GetOrAddReal("problem","beta_cr",1);
+  Real d0 =  pin->GetOrAddReal("problem","d0",1);
   Real p0 = pin->GetOrAddReal("problem","p0",1);
+  Real dev =  pin->GetOrAddReal("problem","width",1);
+  f_i = pin->GetOrAddReal("problem","f_i",1);
+  decouple = pin->GetOrAddReal("problem","A",1);
 
 
   Real gamma = peos->GetGamma();
@@ -76,9 +87,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         Real x2 = pcoord->x2v(j);
         Real x3 = pcoord->x3v(k);
 
-        Real dist_sq=x1*x1;
+        Real dist_sq=SQR(x1) + SQR(x2) + SQR(x3);
 
-        phydro->u(IDN,k,j,i) = 1.0;
+        phydro->u(IDN,k,j,i) = d0;
         phydro->u(IM1,k,j,i) = 0;
         phydro->u(IM2,k,j,i) = 0;
         phydro->u(IM3,k,j,i) = 0;
@@ -87,7 +98,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         }
 
         if (CR_ENABLED) {
-            pcr->u_cr(CRE,k,j,i) = std::exp(-1*(dist_sq)/2);
+            pcr->u_cr(CRE,k,j,i) = p0/beta_cr*std::exp(-1*(dist_sq)/(2*dev));
             pcr->u_cr(CRF1,k,j,i) = 0.0;
             pcr->u_cr(CRF2,k,j,i) = 0.0;
             pcr->u_cr(CRF3,k,j,i) = 0.0;
@@ -120,7 +131,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
-          pfield->b.x1f(k,j,i) = b0;
+          pfield->b.x1f(k,j,i) = p0/beta;
         }
       }
     }
@@ -161,7 +172,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   return;
 }
 
-void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
                AthenaArray<Real> &prim, AthenaArray<Real> &bcc) {
   // set the default opacity to be a large value in the default hydro case
   CosmicRay *pcr=pmb->pcr;
@@ -251,12 +262,13 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
           Real pb= bcc(IB1,k,j,i)*bcc(IB1,k,j,i)
                   +bcc(IB2,k,j,i)*bcc(IB2,k,j,i)
                   +bcc(IB3,k,j,i)*bcc(IB3,k,j,i);
-          Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i));
+          Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i) * f_i);
           Real va1 = bcc(IB1,k,j,i)*inv_sqrt_rho;
           Real va2 = bcc(IB2,k,j,i)*inv_sqrt_rho;
           Real va3 = bcc(IB3,k,j,i)*inv_sqrt_rho;
 
-          Real va = std::sqrt(pb/prim(IDN,k,j,i));
+
+          Real va = std::sqrt(SQR(va1) + SQR(va2) + SQR(va3));
 
           Real dpc_sign = 0.0;
           if (pcr->b_grad_pc(k,j,i) > TINY_NUMBER) dpc_sign = 1.0;
@@ -272,7 +284,7 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
             pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
           } else {
             pcr->sigma_adv(0,k,j,i) = std::abs(pcr->b_grad_pc(k,j,i))
-                          /(std::sqrt(pb)* va * (1.0 + 1.0/3.0)
+                          /(std::sqrt(pb)* va * decouple * (1.0 + 1.0/3.0)
                                     * invlim * u_cr(CRE,k,j,i));
           }
 
@@ -333,5 +345,52 @@ void Diffusion(MeshBlock *pmb, AthenaArray<Real> &u_cr,
       }
     }
   }
+  }
+}
+
+void Streaming(MeshBlock *pmb, AthenaArray<Real> &u_cr,
+             AthenaArray<Real> &prim, AthenaArray<Real> &bcc,
+             AthenaArray<Real> &grad_pc, int k, int j, int is, int ie) {
+  CosmicRay *pcr=pmb->pcr;
+  Real invlim = 1.0/pcr->vmax;
+
+  for(int i=is; i<=ie; ++i) {
+    Real inv_sqrt_rho = 1.0/std::sqrt(prim(IDN,k,j,i) * f_i);
+    Real bsq = bcc(IB1,k,j,i)*bcc(IB1,k,j,i)
+              +bcc(IB2,k,j,i)*bcc(IB2,k,j,i)
+              +bcc(IB3,k,j,i)*bcc(IB3,k,j,i);
+
+    Real b_grad_pc = bcc(IB1,k,j,i) * grad_pc(0,k,j,i)
+                   + bcc(IB2,k,j,i) * grad_pc(1,k,j,i)
+                   + bcc(IB3,k,j,i) * grad_pc(2,k,j,i);
+
+    Real va1 = bcc(IB1,k,j,i) * inv_sqrt_rho;
+    Real va2 = bcc(IB2,k,j,i) * inv_sqrt_rho;
+    Real va3 = bcc(IB3,k,j,i) * inv_sqrt_rho;
+
+    Real va = std::sqrt(bsq) * inv_sqrt_rho;
+    Real dpc_sign = 0.0;
+
+    if (b_grad_pc > TINY_NUMBER) dpc_sign = 1.0;
+    else if (-b_grad_pc > TINY_NUMBER) dpc_sign = -1.0;
+
+    if (pcr->stream_flag > 0) {
+      pcr->v_adv(0,k,j,i) = -va1 * dpc_sign;
+      pcr->v_adv(1,k,j,i) = -va2 * dpc_sign;
+      pcr->v_adv(2,k,j,i) = -va3 * dpc_sign;
+      if (va > TINY_NUMBER) {
+        pcr->sigma_adv(0,k,j,i) = std::abs(b_grad_pc)/(std::sqrt(bsq) * va * decouple *
+                               (4.0/3.0) * invlim * u_cr(CRE,k,j,i));
+        pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
+        pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;
+      }
+    } else {
+      pcr->v_adv(0,k,j,i) = 0.0;
+      pcr->v_adv(1,k,j,i) = 0.0;
+      pcr->v_adv(2,k,j,i) = 0.0;
+      pcr->sigma_adv(0,k,j,i)  = pcr->max_opacity;
+      pcr->sigma_adv(1,k,j,i)  = pcr->max_opacity;
+      pcr->sigma_adv(2,k,j,i)  = pcr->max_opacity;
+    }
   }
 }
