@@ -4,8 +4,8 @@
 #SBATCH --time=0-12:00:00
 #SBATCH --constraint=cpu
 #SBATCH --qos=regular
-module load cray-hdf5-parallel/1.12.2.1
-module load cray-fftw/3.3.10.2
+module load cray-hdf5-parallel
+module load cray-fftw
 
 cd /global/u1/r/roarkh/athena-roark
 

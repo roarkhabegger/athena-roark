@@ -1,9 +1,8 @@
 python3 configure.py \
- --prob=cr_turb \
+ --prob=cr_turb_original \
  --nghost=2 \
  --eos="adiabatic" \
  --nscalars=1 \
- --flux=lhlld \
  -b \
  -fft \
  -cr \

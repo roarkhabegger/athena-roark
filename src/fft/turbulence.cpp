@@ -24,6 +24,7 @@
 #include "../coordinates/coordinates.hpp"
 #include "../globals.hpp"
 #include "../hydro/hydro.hpp"
+#include "../cr/cr.hpp"
 #include "../mesh/mesh.hpp"
 #include "../utils/utils.hpp"
 #include "athena_fft.hpp"
@@ -460,6 +461,12 @@ void TurbulenceDriver::Perturb(Real dt) {
           pmb->phydro->u(IM1,k,j,i) += s*den*v1;
           pmb->phydro->u(IM2,k,j,i) += s*den*v2;
           pmb->phydro->u(IM3,k,j,i) += s*den*v3;
+          // if (CR_ENABLED) {
+          //     // pmb->pcr->u_cr(CRE,k,j,i) += ;
+          //     pmb->pcr->u_cr(CRF1,k,j,i) += 4.0/3.0*s*v1*(pmb->pcr->u_cr(CRE,k,j,i));
+          //     pmb->pcr->u_cr(CRF2,k,j,i) +=  4.0/3.0*s*v2*(pmb->pcr->u_cr(CRE,k,j,i));
+          //     pmb->pcr->u_cr(CRF3,k,j,i) +=  4.0/3.0*s*v3*(pmb->pcr->u_cr(CRE,k,j,i));
+          // }
         }
       }
     }
