@@ -69,7 +69,7 @@ int heating_flag;
 Real turb_dedt;
 
 static Real f_i, T_f_i, dT_f_i;
-// static Real decouple ;
+static Real decouple ;
 
 int nHigh, nLow, Ntriples;
 Real Lrand;
@@ -114,28 +114,15 @@ Real Lrand;
 // double aks[4] = {1.5, 2.867, -0.65, 0.5};
 // double Yks[5] = {1.1275108240104612, 1.1203155181743534, 1.1184058966906867, 0.7350889359326482, 0.0};
 
-// double Tupps[3] = {1.0e+5, 4.0e+7, 1.0e+8};
-// double Tlows[3] = {8.0e+3, 1.0e+5, 4.0e+7};
-// double Lks[3] = {4.6240e-36, 1.7800e-18, 3.2217e-27};
-// double aks[3] = {2.867, -0.65, 0.5};
-// double Yks[4] = {1.1203155181743534, 1.1184058966906867, 0.7350889359326482, 0.0};
-
-// Tupper   [8.e+03 1.e+05 4.e+07 1.e+09] K
-// Tlower   [2.e+03 8.e+03 1.e+05 4.e+07] K
-// Lks/LN   [9.8273346163844594e-09 4.5387130709310564e-14 1.7471689589656751e+04 3.1622776601683795e-05]
-// alphaks  [ 1.5    2.867 -0.65   0.5  ]
-// TEF bounds for Tmax= 1000000000.0  K
-// Yks      [1.7240946970029565 1.7218193415125962 1.7212154661768786 1.6                0.   ]
-double Tupps[4] = {8.0e+3, 1.0e+5, 4.0e+7, 1.0e+9};
-double Tlows[4] = {2.0e+3, 8.0e+3, 1.0e+5, 4.0e+7};
-double Lks[4] = {1.0012e-30, 4.6240e-36, 1.7800e-18, 3.2217e-27};
-double aks[4] = {1.5, 2.867, -0.65, 0.5};
-double Yks[5] = {1.7240946970029565, 1.7218193415125962, 1.7212154661768786, 1.6, 0.0};
+double Tupps[3] = {1.0e+5, 4.0e+7, 1.0e+8};
+double Tlows[3] = {8.0e+3, 1.0e+5, 4.0e+7};
+double Lks[3] = {4.6240e-36, 1.7800e-18, 3.2217e-27};
+double aks[3] = {2.867, -0.65, 0.5};
+double Yks[4] = {1.1203155181743534, 1.1184058966906867, 0.7350889359326482, 0.0};
 
 
-
-double Tmax = Tupps[3];
-double LN =  Lks[3] * std::pow(Tmax,aks[3]);
+double Tmax = Tupps[2];
+double LN =  Lks[2] * std::pow(Tmax,aks[2]);
 
 double TEF(double T);
 double invTEF(double T);
@@ -164,13 +151,12 @@ double invTEF(double y) {
   } else {
     while(y<= Yks[j]) j++;
     j -= 1;
-  
-    // Calculate invY
-    val = (Lks[j]/LN)*std::pow(Tlows[j],aks[j])*(Tmax/Tlows[j]);
-    val *= (y-Yks[j])*(1-aks[j]);
-    val = 1-val;
-    val = (Tlows[j]/T_scale)*std::pow(val,1.0/(1-aks[j]));
   }
+  // Calculate invY
+  val = (Lks[j]/LN)*std::pow(Tlows[j],aks[j])*(Tmax/Tlows[j]);
+  val *= (y-Yks[j])*(1-aks[j]);
+  val = 1-val;
+  val = (Tlows[j]/T_scale)*std::pow(val,1.0/(1-aks[j]));
   return val;
 }   
 
@@ -182,12 +168,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
                AthenaArray<Real> &cons_scalar);
-    
-
-void const_Source(MeshBlock *pmb, const Real time, const Real dt,
-                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-                AthenaArray<Real> &cons_scalar);
+              
 
 void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
         AthenaArray<Real> &prim, AthenaArray<Real> &bcc);
@@ -352,7 +333,51 @@ Real correlation(MeshBlock *pmb, int iout){
   }
   return out;
 }
+Real div_correlation(MeshBlock *pmb, int iout){
 
+  int is=pmb->is, ie=pmb->ie, js=pmb->js, je=pmb->je, ks=pmb->ks, ke=pmb->ke;
+
+  double corr = 0.0;
+  double var1 = 0.0;
+  double var2 = 0.0;
+  double vol_tot = 0.0;
+  
+  AthenaArray<Real> &cons = pmb->phydro->u;
+  AthenaArray<Real> &bcc = pmb->pfield->bcc;
+  AthenaArray<Real> &u_cr = pmb->pcr->u_cr;
+  Real dt = pmb->pmy_mesh->dt;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        Real vol = pmb->pcoord->GetCellVolume(k,j,i);
+        Real face1 = pmb->pcoord->GetFace1Area(k,j,i);
+        Real face2 = pmb->pcoord->GetFace2Area(k,j,i);
+        Real face3 = pmb->pcoord->GetFace3Area(k,j,i);
+
+        Real vel1_0 = cons(IM1,k,j,i) / cons(IDN,k,j,i) ;
+        Real vel2_0 = cons(IM2,k,j,i) / cons(IDN,k,j,i) ;
+        Real vel3_0 = cons(IM3,k,j,i) / cons(IDN,k,j,i) ;
+
+        Real vel1_m1 = 0.5*(cons(IM1,k,j,i-1) / cons(IDN,k,j,i-1) + vel1_0);
+        Real vel2_m1 = 0.5*(cons(IM2,k,j-1,i) / cons(IDN,k,j-1,i) + vel2_0) ;
+        Real vel3_m1 = 0.5*(cons(IM3,k-1,j,i) / cons(IDN,k-1,j,i) + vel3_0) ;
+
+        Real vel1_p1 = 0.5*(cons(IM1,k,j,i+1) / cons(IDN,k,j,i+1) + vel1_0) ;
+        Real vel2_p1 = 0.5*(cons(IM2,k,j+1,i) / cons(IDN,k,j+1,i) + vel2_0) ;
+        Real vel3_p1 = 0.5*(cons(IM3,k+1,j,i) / cons(IDN,k+1,j,i) + vel3_0) ;
+
+    
+        Real cr_p = u_cr(CRE,k,j,i)*(1.0/3.0 );
+        Real myDiv = ((vel1_p1 - vel1_m1)*face1 + (vel2_p1 - vel2_m1)*face2 + (vel3_p1 - vel3_m1)*face3)/vol;
+        corr += cr_p*myDiv;
+        vol_tot += vol;
+      }
+    }
+  }
+  Real out = corr / vol_tot;
+  return out;
+}
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
   if (CR_ENABLED) {
@@ -386,7 +411,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     f_i = pin->GetOrAddReal("cr","f_i",1);
     T_f_i = pin->GetOrAddReal("cr","T_f_i",10000)/T_scale;
     dT_f_i = pin->GetOrAddReal("cr","dT_f_i",1000)/T_scale;
-    // decouple = pin->GetOrAddReal("cr","A_decouple",1);
+    decouple = pin->GetOrAddReal("cr","A_decouple",1);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
 
     if (rank == 0){
@@ -405,18 +430,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   
   if (cooling_flag != 0) {
     // EnrollUserTimeStepFunction(CoolingTimeStep);
-    if (heating_flag==2) {
-      EnrollUserExplicitSourceFunction(const_Source);
-      if (rank == 0){
-        std::cout << "Using Const Source!" << std::endl;
-      }
-    } else {
-      EnrollUserExplicitSourceFunction(mySource);
-      if (rank == 0){
-        std::cout << "Using Base Source!" << std::endl;
-      }
-    }
     
+    EnrollUserExplicitSourceFunction(mySource);
     // constant heating rate is n^2 Lambda at n0, T0 in computational units
   }
   // turb_flag is initialzed in the Mesh constructor to 0 by default;
@@ -441,64 +456,85 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   EnrollUserHistoryOutput(4, correlation, "corr_rho_ec");
   EnrollUserHistoryOutput(5, correlation, "Lgamma_Lsun");
   EnrollUserHistoryOutput(6, correlation, "CR_Loss_Rate");
+  // EnrollUserHistoryOutput(7, div_correlation, "corr_pc_div");
 
+  // generate parameters for random field
+  AllocateRealUserMeshDataField(1);
+  // int Nx1 =pin->GetInteger("mesh","nx1");
+  // int Nx2 =pin->GetInteger("mesh","nx2");
+  // int Nx3 =pin->GetInteger("mesh","nx3");
+  nHigh= pin->GetOrAddInteger("problem","randB_nhigh",1);
+  nLow = pin->GetOrAddInteger("problem","randB_nlow",1);
+  int my_count = 0;
   
- 
-  return;
-}
-
-
-void const_Source(MeshBlock *pmb, const Real time, const Real dt,
-  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-  const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-  AthenaArray<Real> &cons_scalar){
-
-  Real pfloor = pmb->peos->GetPressureFloor();
-  Real dfloor = pmb->peos->GetDensityFloor();
-  Real Tfloor = Tlows[0]/T_scale;
-  Real Tceil = Tmax / T_scale;
-  double gm1 = pmb->peos->GetGamma()-1.0;
-
-  Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
-  Real T2 = invTEF(TEF(T0) + dt*t0);
-  Real const_heating = -n0*(T2-T0)/gm1;
-
-  // double totdE = 0.0;
-  // double totV = 0.0;
-  // Real turbdE =turb_dedt * dt;
-
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-#pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        double d = cons(IDN,k,j,i);
-        double p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
-
-        if ((d> dfloor) && (p> pfloor) ) {
-          double T = p/d;
-          if ((T > Tfloor) && (T < Tceil)){
-            double time0 = t_scale*gm1*d*n_scale*LN/(k_B*Tmax);
-            double newT = invTEF(TEF(T) + dt*time0);
-            double dE = d*(newT-T)/gm1;
-
-            cons(IEN,k,j,i) += dE  + (d/n0)*const_heating;
-            p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
-            T = p/d;
-          }
-          if (T >= Tceil){
-            cons(IEN,k,j,i) += d*(Tceil - T)/gm1;
-          } else if (T <= Tfloor){
-            cons(IEN,k,j,i) += d*(Tfloor - T)/gm1;
-          }
-          
+  for (int l=0; l<=nHigh; l++){
+    for(int m=0; m<=nHigh; m++) {
+      for(int n=0; n<=nHigh; n++) {
+        Real nmag = std::sqrt(SQR(n)+SQR(m)+SQR(l));
+        if ((nmag <= nHigh) && (nmag > nLow)) {
+          my_count +=1;
         }
       }
     }
   }
 
+  Ntriples = my_count;
+  Real x1min = pin->GetReal("mesh","x1min");
+  Real x1max = pin->GetReal("mesh","x1max");
+  Lrand = pin->GetOrAddReal("problem","randB_Lrand",x1max-x1min);
+  ruser_mesh_data[0].NewAthenaArray(9,Ntriples);
+  if (rank==0){
+
+    std::int64_t rseed = pin->GetOrAddInteger("problem","randB_rseed",-1);
+    std::mt19937_64 rng_generator;
+    if (rseed < 0) {
+      std::random_device device;
+      rseed = static_cast<std::int64_t>(device());
+    } 
+    rng_generator.seed(rseed);
+
+    std::uniform_real_distribution<Real> udist(0.0,1.0);
+    // std::normal_distribution<Real> gaussian(0.0,1.0);
+    int my_count = 0;
+    Real s1 = 0.0;
+    Real s2 = 0.0;
+    Real s3 = 0.0;
+    Real scaleFactor = 0.0;
+    for (int l=0; l<=nHigh; l++){
+      for(int m=0; m<=nHigh; m++) {
+        for(int n=0; n<=nHigh; n++) {
+          // initialization
+          Real nmag = std::sqrt(SQR(n)+SQR(m)+SQR(l));
+          if ((nmag <= nHigh) && (nmag > nLow)) {
+            ruser_mesh_data[0](0,my_count)=2*M_PI/Lrand*n;
+            ruser_mesh_data[0](1,my_count)=2*M_PI/Lrand*m;
+            ruser_mesh_data[0](2,my_count)=2*M_PI/Lrand*l;
+            ruser_mesh_data[0](3,my_count)=udist(rng_generator);
+            ruser_mesh_data[0](4,my_count)=udist(rng_generator);
+            ruser_mesh_data[0](5,my_count)=udist(rng_generator);
+            ruser_mesh_data[0](6,my_count)=2*M_PI*udist(rng_generator);
+            ruser_mesh_data[0](7,my_count)=2*M_PI*udist(rng_generator);
+            ruser_mesh_data[0](8,my_count)=2*M_PI*udist(rng_generator);
+            s1 += SQR(ruser_mesh_data[0](3,my_count));
+            s2 += SQR(ruser_mesh_data[0](4,my_count));
+            s3 += SQR(ruser_mesh_data[0](5,my_count));
+            scaleFactor += SQR(2*M_PI/Lrand)*SQR(nmag);
+            my_count += 1;
+          }
+        }
+      }
+    }
+    for (int q=0; q < Ntriples; ++q){
+      ruser_mesh_data[0](3,q) *= 1/std::sqrt(s1*scaleFactor);
+      ruser_mesh_data[0](4,q) *= 1/std::sqrt(s2*scaleFactor);
+      ruser_mesh_data[0](5,q) *= 1/std::sqrt(s3*scaleFactor);
+    }
+    std::cout << "N_expected=" << Ntriples << " vs Ncount" << my_count << std::endl;
+  }
+  MPI_Bcast(ruser_mesh_data[0].data(), 9*Ntriples,MPI_ATHENA_REAL,0,MPI_COMM_WORLD);
+
   return;
 }
-
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -512,9 +548,9 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   Real Tceil = Tmax / T_scale;
   double gm1 = pmb->peos->GetGamma()-1.0;
 
-  // Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
-  // Real T2 = invTEF(TEF(T0) + dt*t0);
-  // Real const_heating = -n0*(T2-T0)/gm1;
+  Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
+  Real T2 = invTEF(TEF(T0) + dt*t0);
+  Real const_heating = -n0*(T2-T0)/gm1;
 
   double totdE = 0.0;
   double totV = 0.0;
@@ -535,9 +571,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             totdE += -1*dE * pmb->pcoord->GetCellVolume(k,j,i);
             totV += d * pmb->pcoord->GetCellVolume(k,j,i);
             cons(IEN,k,j,i) += dE;
-            
           }
-          
           
         }
       }
@@ -545,26 +579,26 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   }
 
   if (heating_flag > 0) {
-    double global_totdE = 0.0;
-    double global_totV = 0.0;
+    double global_totdE;
+    double global_totV;
     MPI_Allreduce(&totdE, &global_totdE, 1, MPI_DOUBLE, MPI_SUM,
-      MPI_COMM_WORLD);
+              MPI_COMM_WORLD);
     MPI_Allreduce(&totV, &global_totV, 1, MPI_DOUBLE, MPI_SUM,
-      MPI_COMM_WORLD);
-    
-    Real turbdE =turb_dedt * dt;
-    
-    // if (pmb->pmy_mesh->turb_flag== 3) {
-    //   turbdE =  turb_dedt * dt ;
-    // } else if (pmb->pmy_mesh->turb_flag== 2) {
-    //   turbdE = 0.0;
-    //   Real trbTime = pmb->pmy_mesh->ptrbd->tdrive;
-    //   Real trbDt = pmb->pmy_mesh->ptrbd->dtdrive;
-    //   turbdE = turb_dedt *dt;
-    //   // if ((time+dt) >= (trbTime)){
-    //   //   turbdE =  turb_dedt * trbDt ;
-    //   // }
-    // }
+              MPI_COMM_WORLD);
+
+
+    Real turbdE =0.0;
+    if (pmb->pmy_mesh->turb_flag== 3) {
+      turbdE =  turb_dedt * dt ;
+    } else if (pmb->pmy_mesh->turb_flag== 2) {
+      turbdE = 0.0;
+      Real trbTime = pmb->pmy_mesh->ptrbd->tdrive;
+      Real trbDt = pmb->pmy_mesh->ptrbd->dtdrive;
+      turbdE = turb_dedt *dt;
+      // if ((time+dt) >= (trbTime)){
+      //   turbdE =  turb_dedt * trbDt ;
+      // }
+    }
     // if (global_totdE <= turbdE) {
     //   std::cout << "Turbulence stronger than Heating!" << std::endl;
     // } else {
@@ -591,6 +625,11 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                 cons(IEN,k,j,i) += d * fmax(global_totdE - turbdE,0.0)  / global_totV;
                 p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
                 T = p/d;
+              } else if (heating_flag == 2){
+                cons(IEN,k,j,i) += const_heating;
+                // cons(IEN,k,j,i) += d * fmax(global_totdE - turbdE,0.0)  / global_totV;
+                p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
+                T = p/d;
               }
             }   
             if (T >= Tceil){
@@ -605,7 +644,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
   return;
 }
-
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
@@ -630,10 +668,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   const Real gm1  = peos->GetGamma() - 1.0;
   // std::cout << Ntriples << std::endl;
   const Real invbeta = pin->GetOrAddReal("problem","invbeta",0.0);
-  // Real dBoverB= pin->GetOrAddReal("problem","delta_B",0.0);
+  Real dBoverB= pin->GetOrAddReal("problem","delta_B",0.0);
   
-  const Real bx_0 = sqrt(2*invbeta*pres); //mean field strength
-  // const Real dB = dBoverB*bx_0;
+  const Real bx_0 = sqrt(2*invbeta*pres/(1 + SQR(dBoverB))); //mean field strength
+  const Real dB = dBoverB*bx_0;
   // const Real b_amp = dBrat*bx_0;
   const Real invbetaCR = pin->GetOrAddReal("problem","invbetaCR",0.0);
   const Real crp = pres*invbetaCR;
@@ -695,7 +733,24 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           Real x2 = pcoord->x2v(j);
           Real x3 = pcoord->x3v(k);
           pfield->b.x1f(k,j,i) = bx_0;
+          for (int q=0; q < Ntriples; ++q){
+            
+            Real k1 = pmy_mesh->ruser_mesh_data[0](0,q);
+            Real k2 = pmy_mesh->ruser_mesh_data[0](1,q);
+            Real k3 = pmy_mesh->ruser_mesh_data[0](2,q);
+            Real A1 = dB*pmy_mesh->ruser_mesh_data[0](3,q);
+            Real A2 = dB*pmy_mesh->ruser_mesh_data[0](4,q);
+            Real A3 = dB*pmy_mesh->ruser_mesh_data[0](5,q);
+            Real phi1 = pmy_mesh->ruser_mesh_data[0](6,q);
+            Real phi2 = pmy_mesh->ruser_mesh_data[0](7,q);
+            Real phi3 = pmy_mesh->ruser_mesh_data[0](8,q);
+            // if ((i==10)&&(j==10)&&(k==10)){
+            //   std::cout << "(" << k1 <<"," << k2 << "," << k3 << ") A1=" << A1 << std::endl;
+            // }
 
+            pfield->b.x1f(k,j,i) += k2*A3*cos(k1*x1+k2*x2+k3*x3+phi3) - k3*A2*cos(k1*x1+k2*x2+k3*x3+phi2);
+          }
+          
         }
       }
     }
@@ -707,6 +762,18 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
             Real x2 = pcoord->x2f(j);
             Real x3 = pcoord->x3v(k);
             pfield->b.x2f(k,j,i) = 0.0;
+            for (int q=0; q < Ntriples; ++q){
+              Real k1 = pmy_mesh->ruser_mesh_data[0](0,q);
+              Real k2 = pmy_mesh->ruser_mesh_data[0](1,q);
+              Real k3 = pmy_mesh->ruser_mesh_data[0](2,q);
+              Real A1 = dB*pmy_mesh->ruser_mesh_data[0](3,q);
+              Real A2 = dB*pmy_mesh->ruser_mesh_data[0](4,q);
+              Real A3 = dB*pmy_mesh->ruser_mesh_data[0](5,q);
+              Real phi1 = pmy_mesh->ruser_mesh_data[0](6,q);
+              Real phi2 = pmy_mesh->ruser_mesh_data[0](7,q);
+              Real phi3 = pmy_mesh->ruser_mesh_data[0](8,q);
+              pfield->b.x2f(k,j,i) += k3*A1*cos(k1*x1+k2*x2+k3*x3+phi1) - k1*A3*cos(k1*x1+k2*x2+k3*x3+phi3);
+            }
           }
         }
       }
@@ -719,7 +786,18 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
             Real x2 = pcoord->x2v(j);
             Real x3 = pcoord->x3f(k);
             pfield->b.x3f(k,j,i) = 0.0;
-            
+            for (int q=0; q < Ntriples; ++q){
+              Real k1 = pmy_mesh->ruser_mesh_data[0](0,q);
+              Real k2 = pmy_mesh->ruser_mesh_data[0](1,q);
+              Real k3 = pmy_mesh->ruser_mesh_data[0](2,q);
+              Real A1 = dB*pmy_mesh->ruser_mesh_data[0](3,q);
+              Real A2 = dB*pmy_mesh->ruser_mesh_data[0](4,q);
+              Real A3 = dB*pmy_mesh->ruser_mesh_data[0](5,q);
+              Real phi1 = pmy_mesh->ruser_mesh_data[0](6,q);
+              Real phi2 = pmy_mesh->ruser_mesh_data[0](7,q);
+              Real phi3 = pmy_mesh->ruser_mesh_data[0](8,q);
+              pfield->b.x3f(k,j,i) += k1*A2*cos(k1*x1+k2*x2+k3*x3+phi2) - k2*A1*cos(k1*x1+k2*x2+k3*x3+phi1);
+            }
           }
         }
       }
@@ -865,7 +943,7 @@ void Opacity(MeshBlock *pmb, AthenaArray<Real> &u_cr,
               pcr->sigma_adv(0,k,j,i) = pcr->max_opacity;
             } else {
               pcr->sigma_adv(0,k,j,i) = std::abs(pcr->b_grad_pc(k,j,i))
-                            /(std::sqrt(pb)* va  * (1.0 + 1.0/3.0)
+                            /(std::sqrt(pb)* va * decouple * (1.0 + 1.0/3.0)
                                       * invlim * u_cr(CRE,k,j,i));
             }
 
@@ -935,7 +1013,7 @@ void Streaming(MeshBlock *pmb, AthenaArray<Real> &u_cr,
       pcr->v_adv(1,k,j,i) = -va2 * dpc_sign;
       pcr->v_adv(2,k,j,i) = -va3 * dpc_sign;
       if (va > TINY_NUMBER) {
-        pcr->sigma_adv(0,k,j,i) = std::abs(b_grad_pc)/(std::sqrt(bsq) * va *
+        pcr->sigma_adv(0,k,j,i) = std::abs(b_grad_pc)/(std::sqrt(bsq) * va * decouple *
                                (4.0/3.0) * invlim * u_cr(CRE,k,j,i));
         pcr->sigma_adv(1,k,j,i) = pcr->max_opacity;
         pcr->sigma_adv(2,k,j,i) = pcr->max_opacity;

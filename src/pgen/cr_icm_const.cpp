@@ -64,6 +64,7 @@ double sigmaParl, sigmaPerp; //CR diffusion
 Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR energy
              // can be useful to give a decay to CR energy during turbulent driving
 Real n0, T0;
+Real neq, Teq;
 int cooling_flag;
 int heating_flag;
 Real turb_dedt;
@@ -174,15 +175,52 @@ double invTEF(double y) {
   return val;
 }   
 
+// double TEF(double T){
+//   double val = 0.0;
+//   int j = 0;
+
+//   double Temp = T*T_scale;
+//   if (Temp >= Tupps[3]){
+//     val = 0.0;
+//   } else if ((Temp < Tupps[3]) && (Temp > Tlows[0]) ){
+//     while(Temp >= Tupps[j]) j++;
+//     //Calculate Y function value at Temparture T*T_scale
+//     val = (1/(1-aks[j]))*(LN/Lks[j])*std::pow(Tlows[j],-1*aks[j])*(Tlows[j]/Tmax);
+//     val *= (1-std::pow(Tlows[j]/(Temp),aks[j]-1));
+//     val += Yks[j];
+//   } else if (Temp <= Tlows[0]){
+//     val = Yks[0];
+//   }
+//   // Figure out which T bin we are in
+  
+//   return val;
+// }
+
+// double invTEF(double y) {
+//   double val = 0.0;
+//   int j = 0;
+//   //Figure out which T bin we are in
+//   if (y>= Yks[0]) {
+//     val = Tlows[0];
+//   } else if ((y < Yks[0]) && (y > Yks[4] )){
+//     while(y<= Yks[j]) j++;
+//     j -= 1;
+  
+//     // Calculate invY
+//     val = (Lks[j]/LN)*std::pow(Tlows[j],aks[j])*(Tmax/Tlows[j]);
+//     val *= (y-Yks[j])*(1-aks[j]);
+//     val = 1-val;
+//     val = (Tlows[j]/T_scale)*std::pow(val,1.0/(1-aks[j]));
+//   } else if (y <= Yks[4]){
+//     val = Tupps[3];
+//   }
+//   return val;
+// }   
+
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
               AthenaArray<Real> &u_cr);
 
-void mySource(MeshBlock *pmb, const Real time, const Real dt,
-               const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-               const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-               AthenaArray<Real> &cons_scalar);
-    
 
 void const_Source(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -210,6 +248,7 @@ Real TotalHeating(MeshBlock *pmb, int iout){
   Real pfloor = pmb->peos->GetPressureFloor();
   Real dfloor = pmb->peos->GetDensityFloor();
   Real Tfloor = Tlows[0]/T_scale;
+  Real Tceil = Tmax / T_scale;
   double gm1 = pmb->peos->GetGamma()-1.0;
 
   double totdE = 0.0;
@@ -227,7 +266,7 @@ Real TotalHeating(MeshBlock *pmb, int iout){
 
         if ((d> dfloor) && (p> pfloor) ) {
           double T = p/d;
-          if ((T > Tfloor)){
+          if ((T > Tfloor) && (T < Tceil)){
             double time0 = t_scale*gm1*d*n_scale*LN/(k_B*Tmax);
             double newT = invTEF(TEF(T) + dt*time0);
             double dE = d*(newT-T)/gm1;
@@ -397,25 +436,16 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     }
   }
   cooling_flag = pin->GetInteger("problem","cooling");
-  heating_flag = pin->GetOrAddInteger("problem","heating",1);
+  // heating_flag = pin->GetOrAddInteger("problem","heating",1);
   // Real gm1 = pin->GetReal("hydro","gamma")-1.0;
   n0 = pin->GetReal("problem", "n0")/n_scale; //density
   T0 = pin->GetReal("problem", "T0")/T_scale;
-  
+  neq = pin->GetOrAddReal("problem", "neq",n0)/n_scale; //density
+  Teq = pin->GetOrAddReal("problem", "Teq",T0)/T_scale;
   
   if (cooling_flag != 0) {
     // EnrollUserTimeStepFunction(CoolingTimeStep);
-    if (heating_flag==2) {
-      EnrollUserExplicitSourceFunction(const_Source);
-      if (rank == 0){
-        std::cout << "Using Const Source!" << std::endl;
-      }
-    } else {
-      EnrollUserExplicitSourceFunction(mySource);
-      if (rank == 0){
-        std::cout << "Using Base Source!" << std::endl;
-      }
-    }
+    EnrollUserExplicitSourceFunction(const_Source);
     
     // constant heating rate is n^2 Lambda at n0, T0 in computational units
   }
@@ -457,12 +487,18 @@ void const_Source(MeshBlock *pmb, const Real time, const Real dt,
   Real dfloor = pmb->peos->GetDensityFloor();
   Real Tfloor = Tlows[0]/T_scale;
   Real Tceil = Tmax / T_scale;
+
   double gm1 = pmb->peos->GetGamma()-1.0;
-
-  Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
-  Real T2 = invTEF(TEF(T0) + dt*t0);
-  Real const_heating = -n0*(T2-T0)/gm1;
-
+  
+  Real const_heating;
+  
+  if (Teq < Tfloor){
+    const_heating = 0.0;
+  } else {
+    Real teq = t_scale*gm1*neq*n_scale*LN/(k_B*Tmax);
+    Real T2 = invTEF(TEF(Teq) + dt*teq);
+    const_heating = -neq*(T2-Teq)/gm1;
+  }
   // double totdE = 0.0;
   // double totV = 0.0;
   // Real turbdE =turb_dedt * dt;
@@ -481,7 +517,7 @@ void const_Source(MeshBlock *pmb, const Real time, const Real dt,
             double newT = invTEF(TEF(T) + dt*time0);
             double dE = d*(newT-T)/gm1;
 
-            cons(IEN,k,j,i) += dE  + (d/n0)*const_heating;
+            cons(IEN,k,j,i) += dE  + (d/neq)*const_heating;
             p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
             T = p/d;
           }
@@ -498,114 +534,6 @@ void const_Source(MeshBlock *pmb, const Real time, const Real dt,
 
   return;
 }
-
-
-void mySource(MeshBlock *pmb, const Real time, const Real dt,
-               const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
-               const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
-               AthenaArray<Real> &cons_scalar){
-    
-
-  Real pfloor = pmb->peos->GetPressureFloor();
-  Real dfloor = pmb->peos->GetDensityFloor();
-  Real Tfloor = Tlows[0]/T_scale;
-  Real Tceil = Tmax / T_scale;
-  double gm1 = pmb->peos->GetGamma()-1.0;
-
-  // Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
-  // Real T2 = invTEF(TEF(T0) + dt*t0);
-  // Real const_heating = -n0*(T2-T0)/gm1;
-
-  double totdE = 0.0;
-  double totV = 0.0;
-  
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-#pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        double d = cons(IDN,k,j,i);
-        double p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
-
-        if ((d> dfloor) && (p> pfloor) ) {
-          double T = p/d;
-          if ((T > Tfloor) && (T < Tceil)){
-            double time0 = t_scale*gm1*d*n_scale*LN/(k_B*Tmax);
-            double newT = invTEF(TEF(T) + dt*time0);
-            double dE = d*(newT-T)/gm1;
-            totdE += -1*dE * pmb->pcoord->GetCellVolume(k,j,i);
-            totV += d * pmb->pcoord->GetCellVolume(k,j,i);
-            cons(IEN,k,j,i) += dE;
-            
-          }
-          
-          
-        }
-      }
-    }
-  }
-
-  if (heating_flag > 0) {
-    double global_totdE = 0.0;
-    double global_totV = 0.0;
-    MPI_Allreduce(&totdE, &global_totdE, 1, MPI_DOUBLE, MPI_SUM,
-      MPI_COMM_WORLD);
-    MPI_Allreduce(&totV, &global_totV, 1, MPI_DOUBLE, MPI_SUM,
-      MPI_COMM_WORLD);
-    
-    Real turbdE =turb_dedt * dt;
-    
-    // if (pmb->pmy_mesh->turb_flag== 3) {
-    //   turbdE =  turb_dedt * dt ;
-    // } else if (pmb->pmy_mesh->turb_flag== 2) {
-    //   turbdE = 0.0;
-    //   Real trbTime = pmb->pmy_mesh->ptrbd->tdrive;
-    //   Real trbDt = pmb->pmy_mesh->ptrbd->dtdrive;
-    //   turbdE = turb_dedt *dt;
-    //   // if ((time+dt) >= (trbTime)){
-    //   //   turbdE =  turb_dedt * trbDt ;
-    //   // }
-    // }
-    // if (global_totdE <= turbdE) {
-    //   std::cout << "Turbulence stronger than Heating!" << std::endl;
-    // } else {
-    //   global_totdE -= turbdE;
-    // }
-
-
-    // global_totdE -= turbdE;
-
-    // Real heater = global_totdE / ;
-    for (int k=pmb->ks; k<=pmb->ke; ++k) {
-      for (int j=pmb->js; j<=pmb->je; ++j) {
-  #pragma omp simd
-        for (int i=pmb->is; i<=pmb->ie; ++i) {
-          double d = cons(IDN,k,j,i);
-          double p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
-
-          if ((d> dfloor) && (p> pfloor) ) {
-            double T = p/d;
-            if ((T > Tfloor) && (T < Tceil)){
-              
-              if (heating_flag == 1){
-                // cons(IEN,k,j,i) += d * global_totdE / global_totV;
-                cons(IEN,k,j,i) += d * fmax(global_totdE - turbdE,0.0)  / global_totV;
-                p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
-                T = p/d;
-              }
-            }   
-            if (T >= Tceil){
-              cons(IEN,k,j,i) += d*(Tceil - T)/gm1;
-            }
-          }
-        }
-      }
-    }
-  } 
-  
-
-  return;
-}
-
 
 void CRSource(MeshBlock *pmb, const Real time, const Real dt,
                 const AthenaArray<Real> &prim, FaceField &b, 
