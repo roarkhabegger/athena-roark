@@ -15,6 +15,6 @@ module load hdf5
 cd $SLURM_SUBMIT_DIR
 make clean
 make clean
-sh myConfs/ntf_1d.sh
+sh myConfs/ntf_new1d.sh
 make -j 8
 # Submit code using "sbatch compileAthena.sh"

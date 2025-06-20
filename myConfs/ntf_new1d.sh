@@ -1,0 +1,12 @@
+python3 configure.py \
+ --prob=ntf_new \
+ --nghost=4 \
+ --coord=cartesian \
+ --flux=roe \
+ --eos="adiabatic" \
+ -b \
+ -cr \
+ -hdf5 \
+ -mpi \
+ --hdf5_path=$HDF5_ROOT \
+ --cflag='-DH5_HAVE_PARALLEL ' \
