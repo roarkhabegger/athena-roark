@@ -53,7 +53,7 @@ Real tf;
 Real ti;
 int synch_flag;
 int lepton_flag;
-Real inv_CRlosstime;
+Real CRlosstime;
 int dim;
 
 
@@ -98,9 +98,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     r0 = pin->GetReal("problem","r0") ;
     ti = pin->GetOrAddReal("problem","ti",0.0) ;
     tf = pin->GetReal("problem","tf");
-    if (lepton_flag == 1) {
+    if (lepton_flag == 0) {
       L0 = pin->GetReal("problem","L0");
-    } else if (lepton_flag == 2) {
+    } else if (lepton_flag == 1) {
       L0 = 100 * pin->GetReal("problem","L0");
     }
 
@@ -146,26 +146,26 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   Real b0 = sqrt(2*inv_beta*P0);
   
   synch_flag = pin->GetInteger("problem","synch_flag");
-
-
   if (synch_flag == 0) {
-    inv_CRlosstime = 0;
+    CRlosstime = 1.0e10; // Placeholder large number -- shouldn't need to be called
   } else if (synch_flag == 1) {
-    Real sigma_T = 6.65e-25/pow(l_scale, 2);
-    Real mass_ratio = 1/1836;
+    //std::cout << "Synch_flag==1 running." << std::endl;
+    Real sigma_T = 6.65e-25 / pow(l_scale, 2);
+    Real mass = pow(l_scale, -3) / 1836.0;
     Real light_speed = 2.9979e10 / v_scale;
-    Real freq = 8e9 / (l_scale / v_scale);
-    Real charge = 4.8e-10 / sqrt(e_scale * l_scale);
-    inv_CRlosstime = (4 * sigma_T * inv_beta * P0 / (3 * mass_ratio * light_speed)) * sqrt(16 * mass_ratio * light_speed * freq / (3 * charge * b0));
+    Real freq = 8.0e9 / (v_scale / l_scale);
+    Real charge = 4.8e-10 / pow(e_scale * pow(l_scale, 4), 0.5);
+    CRlosstime = (3.0 * mass * light_speed) / (4 * sigma_T * inv_beta * P0) * std::sqrt((3.0 * charge * b0) / (16 * mass * light_speed * freq));
   } else if (synch_flag == 2) {
-    Real sigma_T = 6.65e-25/pow(l_scale, 2);
-    Real mass_ratio = 1/1836;
+    //std::cout << "Synch_flag==2 running." << std::endl;
+    Real sigma_T = 6.65e-25 / pow(l_scale, 2);
+    Real mass = pow(l_scale, -3) / 1836.0;
     Real light_speed = 2.9979e10 / v_scale;
     Real alpha = 2.6;
-    int gamma_0 = 1000;
-    inv_CRlosstime = alpha * (4 * sigma_T * inv_beta * P0 / (3 * mass_ratio * light_speed)) * gamma_0 / (alpha - 1);
+    Real gamma_0 = 1000.0;
+    CRlosstime = (3 * (alpha - 1) * mass * light_speed) / (4.0 * alpha * sigma_T * (inv_beta * P0) * gamma_0);
   }
-  // Real maxErr = FLT_MIN;
+  //std::cout << "CRlosstime is: " << CRlosstime << std::endl;
 
   // Initialize hydro variable
   for(int k=ks; k<=ke; ++k) {
@@ -541,17 +541,21 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
         }
       }
     }
-  } else if ((COORDINATE_SYSTEM == "cartesian") && (dim == 1)) {
+  } else if ((COORDINATE_SYSTEM == "cartesian")) {
     for (int k=pmb->ks; k<=pmb->ke; ++k) {
       for (int j=pmb->js; j<=pmb->je; ++j) {
     #pragma omp simd
         for (int i=pmb->is; i<=pmb->ie; ++i) {
           //CRLoss Term
-          if (synch_flag == 2) {
-            u_cr(CRE,k,j,i) -=  dt * u_cr(CRE,k,j,i) / (((1 / inv_CRlosstime) + time) * (99 * lepton_flag + 1));
-          } else if (synch_flag == 1) {
-            u_cr(CRE,k,j,i) -= inv_CRlosstime * dt * u_cr(CRE,k,j,i) / (99 * lepton_flag + 1);
+          if (synch_flag == 1) {
+            u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / CRlosstime) / (99.0 * lepton_flag + 1.0);
+          } else if (synch_flag == 2) {
+            u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / (CRlosstime + time)) / (99.0 * lepton_flag + 1.0);
           }
+          //std::cout << "The time is: " << time << std::endl;
+          //std::cout << "The CRlosstime is: " << CRlosstime << std::endl;
+          //std::cout << "The first fraction is: " << dt / CRlosstime << std::endl;
+          //std::cout << "The second fraction is: " << dt / (CRlosstime + time) << std::endl;
 
           if ((pmb->pcoord->x1f(i) == 0) && (time >= ti) && (time <= tf)) {
             //CRSource Term
@@ -560,13 +564,13 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
         }
       }
     }
-  } else if ((COORDINATE_SYSTEM == "cartesian") && (dim == 3)) { //NOT FINISHED
+  } else if ((COORDINATE_SYSTEM == "cartesian") && (dim == 3)) { //decrepit
     for (int k=pmb->ks; k<=pmb->ke; ++k) {
       for (int j=pmb->js; j<=pmb->je; ++j) {
     #pragma omp simd
         for (int i=pmb->is; i<=pmb->ie; ++i) {
           //CRLoss Term
-          u_cr(CRE,k,j,i) -= inv_CRlosstime * dt * u_cr(CRE,k,j,i);
+          u_cr(CRE,k,j,i) -= dt * u_cr(CRE,k,j,i) / CRlosstime;
 
           Real rad = std::sqrt(SQR(pmb->pcoord->x2v(j)) + SQR(pmb->pcoord->x3v(k)));
           Real rad_percent = 0.0;
