@@ -52,7 +52,7 @@ Real L0;
 Real tf;
 Real ti;
 int synch_flag;
-int proton_flag;
+int lepton_flag;
 Real CRlosstime;
 int dim;
 
@@ -93,14 +93,14 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real kappaParl = pin->GetOrAddReal("cr","kappaParl",3e28)/(v_scale*l_scale) ;
     sigmaPerp = vmax / (3*kappaPerp);
     sigmaParl = vmax / (3*kappaParl);
-    proton_flag = pin->GetInteger("problem","proton_flag");
+    lepton_flag = pin->GetInteger("problem","lepton_flag");
 
     r0 = pin->GetReal("problem","r0") ;
     ti = pin->GetOrAddReal("problem","ti",0.0) ;
     tf = pin->GetReal("problem","tf");
-    if (proton_flag == 0) {
+    if (lepton_flag == 0) {
       L0 = pin->GetReal("problem","L0");
-    } else if (proton_flag == 1) {
+    } else if (lepton_flag == 1) {
       L0 = 100 * pin->GetReal("problem","L0");
     }
 
@@ -149,8 +149,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   if (synch_flag == 0) {
     CRlosstime = 1.0e10; // Placeholder large number -- shouldn't need to be called
   } else if (synch_flag == 1) {
-    Real B_base = (inv_beta / 12.0) * (n0 / 100.0) * (T0 / 1e4);
-    CRlosstime = pow(pow(172.0, -1) * (B_base + 0.317), -1);
+    //std::cout << "Synch_flag==1 running." << std::endl;
+    Real sigma_T = 6.65e-25 / pow(l_scale, 2);
+    Real mass = pow(l_scale, -3) / 1836.0;
+    Real light_speed = 2.9979e10 / v_scale;
+    Real freq = 8.0e9 / (v_scale / l_scale);
+    Real charge = 4.8e-10 / pow(e_scale * pow(l_scale, 4), 0.5);
+    CRlosstime = (3.0 * mass * light_speed) / (4 * sigma_T * inv_beta * P0) * std::sqrt((3.0 * charge * b0) / (16 * mass * light_speed * freq));
   } else if (synch_flag == 2) {
     //std::cout << "Synch_flag==2 running." << std::endl;
     Real sigma_T = 6.65e-25 / pow(l_scale, 2);
@@ -162,8 +167,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   }
   std::cout << "CRlosstime is: " << CRlosstime << std::endl;
 
-  if (proton_flag == 1) {
-    Real Seclosstime = 424.0 * (100.0 / n0) * pow((5.0 / inv_beta), (2.6 - 2)/12.0);
+  if (lepton_flag == 2) {
+    Real Seclosstime = 117.0 * (100.0 / n0) * pow((5.0 / inv_beta), (2.6 - 2)/12.0);
     CRlosstime = 1.0 / ( (1 / CRlosstime) - (1 / Seclosstime) );
   }
   std::cout << "CRlosstime is: " << CRlosstime << std::endl;
@@ -528,9 +533,9 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
     #pragma omp simd
         for (int i=pmb->is; i<=pmb->ie; ++i) {
           //CRLoss Term
-          if (proton_flag == 1) {
+          if (lepton_flag == 1) {
             u_cr(CRE,k,j,i) = u_cr(CRE,k,j,i) * (1 - dt * u_cr(CRE,k,j,i));
-          } else if (proton_flag == 2) {
+          } else if (lepton_flag == 2) {
             u_cr(CRE,k,j,i) = u_cr(CRE,k,j,i) * (1 - dt * u_cr(CRE,k,j,i));
           }
 
@@ -548,11 +553,11 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
     #pragma omp simd
         for (int i=pmb->is; i<=pmb->ie; ++i) {
           //CRLoss Term
-          if (synch_flag == 1) {
-            u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / CRlosstime) / (99.0 * proton_flag + 1.0);
-          } else if (synch_flag == 2) {
-            u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / (CRlosstime + time)) / (99.0 * proton_flag + 1.0);
-          }
+          //if (synch_flag == 1) {
+            //u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / CRlosstime) / (99.0 * lepton_flag + 1.0);
+          //} //else if (synch_flag == 2) {
+            //u_cr(CRE,k,j,i) -= (u_cr(CRE,k,j,i) * dt / (CRlosstime + time)) / (99.0 * lepton_flag + 1.0);
+          //}
           //std::cout << "The time is: " << time << std::endl;
           //std::cout << "The CRlosstime is: " << CRlosstime << std::endl;
           //std::cout << "The first fraction is: " << dt / CRlosstime << std::endl;
