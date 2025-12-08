@@ -149,8 +149,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   if (synch_flag == 0) {
     CRlosstime = 1.0e10; // Placeholder large number -- shouldn't need to be called
   } else if (synch_flag == 1) {
-    Real B_base = (inv_beta / 12.0) * (n0 / 100.0) * (T0 / 1e4);
-    CRlosstime = pow(pow(172.0, -1) * (B_base + 0.317), -1);
+    Real B2_base = (inv_beta / 12.0) * (n0 / 100.0) * (T0 / 1e4); // This is B^2/8pi, fixed for B=200 muG
+    Real n_base = (n0 / 100.0);
+    Real synch_life = 176.0 * pow(B2_base, -0.75);
+    Real bremm_life = 2180.0 * pow(n_base, -1.0);
+    Real comp_life = 1760.0 * pow(B2_base, 0.25);
+    Real coul_life = 949.0 * pow(B2_base, -0.25) * pow(n_base, -1.0);
+    CRlosstime = pow(pow(synch_life,-1.0) + pow(bremm_life,-1.0) + pow(comp_life,-1.0) + pow(coul_life,-1.0),-1.0);
   } else if (synch_flag == 2) {
     //std::cout << "Synch_flag==2 running." << std::endl;
     Real sigma_T = 6.65e-25 / pow(l_scale, 2);
@@ -163,8 +168,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   std::cout << "CRlosstime is: " << CRlosstime << std::endl;
 
   if (proton_flag == 1) {
-    Real Seclosstime = 424.0 * (100.0 / n0) * pow((5.0 / inv_beta), (2.6 - 2)/12.0);
-    CRlosstime = 1.0 / ( (1 / CRlosstime) - (1 / Seclosstime) );
+    Real B2_base_2 = (inv_beta / 12.0) * (n0 / 100.0) * (T0 / 1e4); // This is B^2/8pi, fixed for B=200 muG
+    Real n_base_2 = (n0 / 100.0);
+    Real Seclosstime = 424.0 * pow(n_base_2, -1) * pow(B2_base_2, -(2.6 - 2.0)/12.0);
+    CRlosstime = 1.0 / ( (1.0 / CRlosstime) - (1.0 / Seclosstime) );
   }
   std::cout << "CRlosstime is: " << CRlosstime << std::endl;
 
