@@ -246,9 +246,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   A = pin->GetOrAddReal("problem","A",30.0);
   B = pin->GetOrAddReal("problem","B",100.0);
-  C = pin->GetOrAddReal("problem","C",0.0);
-  D = pin->GetOrAddReal("problem","D",0.0);
-  E = pin->GetOrAddReal("problem","E",0.0);  
+  C = pin->GetOrAddReal("problem","C",1.0);
+  D = pin->GetOrAddReal("problem","D",1.0);
+  E = pin->GetOrAddReal("problem","E",1.0);  
 
   pfloor = pin->GetReal("hydro","pfloor");
   dfloor = pin->GetReal("hydro","dfloor");
