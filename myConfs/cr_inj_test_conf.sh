@@ -1,0 +1,11 @@
+python3 configure.py \
+ --prob=cr_inj_test \
+ --nghost=2 \
+ --flux=lhlld \
+ --eos="adiabatic" \
+ -b \
+ -cr \
+ -hdf5 \
+ -mpi \
+ --mpiccmd=h5pcc \
+ --cflag='-DH5_HAVE_PARALLEL -lstdc++' \

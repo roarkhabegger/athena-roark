@@ -54,6 +54,8 @@ Real sigmaParl, sigmaPerp; //CR diffusion
 Real crLoss; //CR Loss term. E.g. Hadronic losses, proportional to local CR energy
              // can be useful to give a decay to CR energy during turbulent driving
 
+// static Real f_i, T_f_i, dT_f_i;
+
 Real nGrav, h, g0, pres0, dens0, alpha, beta;
 
 int cooling_flag;
@@ -75,7 +77,9 @@ double SNRate = 0.0;
 double injH = 100;
 double Esn_cr = 0.0;
 double Esn_th = 0.0;
+double Esn_mom = 0.0;
 double injL = 0.0;
+double injL_CR = 0.0;
 double StopT = -1.0;
 double KSLaw = 1.0;
 
@@ -199,11 +203,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   injH = pin->GetOrAddReal("problem","InjH",100); 
   StopT = pin->GetReal("problem","StopT");
   injL = pin->GetReal("problem","InjL");
+  injL_CR = pin->GetOrAddReal("problem","InjL_CR",injL);
   massWeight = pin->GetOrAddInteger("problem","massWeight",0);
   KSLaw = pin->GetOrAddReal("problem","KSLaw",1.0);
   
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_cr = pin->GetOrAddReal("problem","Esn_cr",0.1) * 1.0e51/(e_scale*pow(l_scale,3));
+  Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.0) * 1.0e51/(e_scale*pow(l_scale,3));
 
   if (rank == 0){
     std::cout << "Ecr   = " << Esn_cr << std::endl;
@@ -257,7 +263,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   if (rank==0) {
     std::ofstream myfile;
     myfile.open("injections.csv",std::ios::out | std::ios::app);
-    myfile << "Cell,X1,X2,X3\n";
+    myfile << "Cell,Time,X1,X2,X3\n";
     myfile.close();
   }
   Mesh *pm = pmy_mesh; 
@@ -415,6 +421,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkInLoop(void)
 {
+  Real maxL = std::fmax(injL,injL_CR);
   if (uniformInj != 1){
     int size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -433,14 +440,15 @@ void Mesh::UserWorkInLoop(void)
                 Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
                 Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
                 Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
-                std::uniform_real_distribution<double> distx1(mesh_size.x1min+injL/2,mesh_size.x1max - x1d-injL/2);
-                std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
-                std::uniform_real_distribution<double> distx3(mesh_size.x3min+injL/2,mesh_size.x3max - x3d-injL/2);
+                std::uniform_real_distribution<double> distx1(mesh_size.x1min+x1d+maxL,mesh_size.x1max-x1d-maxL);
+                std::uniform_real_distribution<double> distx2(-1*injH+x2d,injH-x3d);
+                std::uniform_real_distribution<double> distx3(mesh_size.x3min+x3d+maxL,mesh_size.x3max-x3d-maxL);
                 for (int n = 1; n <= NInjs; n++){
-                  X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
-                  X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
-                  X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
-                  myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+                  X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min);
+                  X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min);
+                  X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min);
+                  myfile <<  0<< "," << time << "," << X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+                
                 }
                 myfile.close();
             }
@@ -451,12 +459,12 @@ void Mesh::UserWorkInLoop(void)
           std::vector<double> vecX3 = {};
           for (int b=0; b<nblocal; ++b) {
             MeshBlock *pmb = my_blocks(b);
-            for (int k=pmb->ks; k<=pmb->ke; k++) {
-              for (int j=pmb->js; j<=pmb->je; j++) {
-                for (int i=pmb->is; i<=pmb->ie; i++) {
-                    Real x1 = pmb->pcoord->x1v(i);
-                    Real x2 = pmb->pcoord->x2v(j);
-                    Real x3 = pmb->pcoord->x3v(k);
+            for (int k=pmb->ks+1; k<=pmb->ke; k++) {
+              for (int j=pmb->js+1; j<=pmb->je; j++) {
+                for (int i=pmb->is+1; i<=pmb->ie; i++) {
+                    Real x1 = pmb->pcoord->x1f(i);
+                    Real x2 = pmb->pcoord->x2f(j);
+                    Real x3 = pmb->pcoord->x3f(k);
                     Real density = pmb->phydro->u(IDN,k,j,i);
                     if (fabs(x2) <= injH) {
                         vecD.insert(vecD.end(),pow(density,KSLaw));
@@ -538,7 +546,7 @@ void Mesh::UserWorkInLoop(void)
                 X1Inj.insert(X1Inj.end(), allX1[pick]);
                 X2Inj.insert(X2Inj.end(), allX2[pick]);
                 X3Inj.insert(X3Inj.end(), allX3[pick]);
-                myfile <<  pick << "," << X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+                myfile <<  pick <<"," << time << "," << X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
                 
                 // std::cout << "X1: " << X1Inj[n-1] << std::endl;
                 // std::cout << "X2: " << X2Inj[n-1] << std::endl;
@@ -672,6 +680,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
         //INJECTION
         if (uniformInj != 1){
+          
 
           Real x1 = pmb->pcoord->x1v(i);
           Real x2 = pmb->pcoord->x2v(j);
@@ -681,20 +690,37 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           Real dx3 = pmb->pcoord->dx3v(k);
           Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
           for (int m = 0 ; m < NInjs; ++m) {
-            Real x10   = X1Inj[m];
-            Real x20   = X2Inj[m];
-            Real x30   = X3Inj[m];
-            Real ax = (x1 - x10 - dx1/2)/injL;
-            Real bx = (x1 - x10 + dx1/2)/injL;
-            Real ay = (x2 - x20 - dx2/2)/injL;
-            Real by = (x2 - x20 + dx2/2)/injL;
-            Real az = (x3 - x30 - dx3/2)/injL;
-            Real bz = (x3 - x30 + dx3/2)/injL;
-            Real frac = (fmin(0.5,bx) - fmax(-0.5,ax))*(fmin(0.5,by) - fmax(-0.5,ay))*(fmin(0.5,bz) - fmax(-0.5,az));
+            Real x10   = X1Inj.at(m);
+            Real x20   = X2Inj.at(m);
+            Real x30   = X3Inj.at(m);
 
-            if ( ( bx > -0.5) && ( ax < 0.5) && ( by > -0.5) && ( ay < 0.5) && ( bz > -0.5) && ( az < 0.5)) {
-              cons(IEN,k,j,i) += Esn_th/cellVol*frac;
+            Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
+            Real frac = cellVol / (4*M_PI/3*std::pow(injL,3));
+            // Real Efrac = 0.1;
+            if (dist <= injL) {
+    
+              cons(IEN,k,j,i) += Esn_th*frac/cellVol;
+              Real mom0 = std::sqrt(2*Esn_mom*frac/cellVol*cons(IDN,k,j,i));
+              if (dist > 0){
+                cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
+                cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
+                cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
+                cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
+              } 
+             
+    
             }
+            // Real ax = (x1 - x10 - dx1/2)/injL;
+            // Real bx = (x1 - x10 + dx1/2)/injL;
+            // Real ay = (x2 - x20 - dx2/2)/injL;
+            // Real by = (x2 - x20 + dx2/2)/injL;
+            // Real az = (x3 - x30 - dx3/2)/injL;
+            // Real bz = (x3 - x30 + dx3/2)/injL;
+            // Real frac = (fmin(0.5,bx) - fmax(-0.5,ax))*(fmin(0.5,by) - fmax(-0.5,ay))*(fmin(0.5,bz) - fmax(-0.5,az));
+
+            // if ( ( bx > -0.5) && ( ax < 0.5) && ( by > -0.5) && ( ay < 0.5) && ( bz > -0.5) && ( az < 0.5)) {
+            //   cons(IEN,k,j,i) += Esn_th/cellVol*frac;
+            // }
           }
         }
         if (uniformInj == 1){
@@ -740,12 +766,22 @@ void CRSource(MeshBlock *pmb, const Real time, const Real dt,
             Real x10   = X1Inj.at(m);
             Real x20   = X2Inj.at(m);
             Real x30   = X3Inj.at(m);
-            Real ax = (x1 - x10 - dx1/2)/injL;
-            Real bx = (x1 - x10 + dx1/2)/injL;
-            Real ay = (x2 - x20 - dx2/2)/injL;
-            Real by = (x2 - x20 + dx2/2)/injL;
-            Real az = (x3 - x30 - dx3/2)/injL;
-            Real bz = (x3 - x30 + dx3/2)/injL;
+            // Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
+            // Real frac = cellVol / (4*M_PI/3*std::pow(injL_CR,3));
+            // Real vel0 = std::sqrt(2*Esn_mom*frac/(cellVol*prim(IDN,k,j,i)));
+            // Real Efrac = 0.1;
+            // if (dist <= injL_CR) {
+            //   u_cr(CRE,k,j,i) += Esn_cr/cellVol*frac;
+            //   // u_cr(CRF1,k,j,i) += 4/3*(Esn_cr/cellVol*frac) * vel0* (x1-x10)/dist;
+            //   // u_cr(CRF2,k,j,i) += 4/3*(Esn_cr/cellVol*frac) * vel0* (x2-x20)/dist;
+            //   // u_cr(CRF3,k,j,i) += 4/3*(Esn_cr/cellVol*frac) * vel0* (x3-x30)/dist;
+            // }
+            Real ax = (x1 - x10 - dx1/2)/injL_CR;
+            Real bx = (x1 - x10 + dx1/2)/injL_CR;
+            Real ay = (x2 - x20 - dx2/2)/injL_CR;
+            Real by = (x2 - x20 + dx2/2)/injL_CR;
+            Real az = (x3 - x30 - dx3/2)/injL_CR;
+            Real bz = (x3 - x30 + dx3/2)/injL_CR;
             Real frac = (fmin(0.5,bx) - fmax(-0.5,ax))*(fmin(0.5,by) - fmax(-0.5,ay))*(fmin(0.5,bz) - fmax(-0.5,az));
 
             if ( ( bx > -0.5) && ( ax < 0.5) && ( by > -0.5) && ( ay < 0.5) && ( bz > -0.5) && ( az < 0.5)) {
