@@ -1,5 +1,5 @@
 python3 configure.py \
- --prob=cr_icm \
+ --prob=cr_icm_const \
  --nghost=4 \
  --eos="adiabatic" \
  --flux=lhlld \
