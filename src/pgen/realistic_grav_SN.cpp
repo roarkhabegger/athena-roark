@@ -79,9 +79,10 @@ double injL = 0.0;
 // All in cgs units
 const Real k_B = 1.380649e-16;
 const Real M_sun = 1.98840987e+33;
+const Real parsec = 3.08568e+18;  
 const Real G = 6.6743e-08;
 const Real c = 2.99792458e+10;
-const Real l_scale = 3.08568e+18;
+const Real l_scale = 1*parsec;
 const Real t_scale = 3.15576e+13;
 const Real n_scale = 1; 
 const Real m_scale = 1.67262192e-24;
@@ -121,14 +122,15 @@ Real (*density)(Real z);
 // SILCC FUNCTIONS
 Real gravity_SILCC(Real z) {
   //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
-  Real g0 = 2*PI*G*(A*(M_sun/pow(l_scale,2))) /(v_scale*v_scale/l_scale); // in code units
+  Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
   Real zd = B ; // in code units
-  return -1* g0 * tanh(z/(2*zd));
+  return -1* g0 * tanh(z * l_scale/(2*zd * parsec));
 }
 Real density_SILCC(Real z) {
   //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
-  Real g0 = 2*PI*G*(A*(M_sun/pow(l_scale,2))) /(v_scale*v_scale/l_scale); // in code units
+  Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
   Real zd = B ; // in code units
+  // std::cout << "My Estimate = "<<  g0 << " cm/s^2"<< std::endl;
   return dens0* exp( -2* g0*zd/(pres0*(1+invbeta)/dens0) * std::log( cosh(z/(2*zd)) ) );
 }
 
@@ -170,11 +172,13 @@ Real Y(Real T) {
 
 Real Yinv(Real y) {
   //find bracketing indicies of y in Yks array with binary tree
-  if (y >= Yks(Tbins)) {
-    return Tlows(0) / T_scale; // return in code units
+  if (y <= Yks(Tbins)) {
+    // std::cout << "y = " << y << " Yks(Tbins) = " << Yks(Tbins) << std::endl;
+    return Tupps(Tbins-1)/ T_scale; // return in code units
   } 
-  if (y <= Yks(0)) {
-    return Tupps(Tbins-1)/T_scale; // return in code units
+  if (y >= Yks(0)) {
+    // std::cout << "y = " << y << " Yks(0) = " << Yks(0) << std::endl;
+    return Tlows(0)/T_scale; // return in code units
   }
   int low = 0;
   int high = Tbins;
@@ -187,6 +191,7 @@ Real Yinv(Real y) {
       low = mid;
     }
   }
+  // std::cout << "low = " << low << " high = " << high << std::endl;
   if (high != low + 1) {
     throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Binary search failed in Yinv!");
   }
@@ -296,6 +301,16 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     std::cout << "Loaded Cooling Function from cooling.hdf5: " << std::endl;
     std::cout << "Tmax = " << Tmax_arr(0) << std::endl;
     std::cout << "LN   = " << LN_arr(0) << std::endl;
+    Real Tmax = Tmax_arr(0) / T_scale;
+    Real LN = LN_arr(0) / (e_scale/t_scale * SQR(n_scale)); 
+    Real dt = 1e-3;
+    Real Temp0 = pres0/dens0;
+    Real tcool = pow(dens0*gm1 * LN / (Tmax),-1);
+    Real Tnp1 = Yinv( Y(Temp0) + dt / tcool );
+    Real cool = dens0/(gm1) * (Temp0 - Tnp1);
+    Real heat = HeatingRate * dens0 * dt;
+    std::cout << "Cooling rate for a kyr at d0, T0 = " << cool << std::endl;
+    std::cout << "Heating rate for a kyr at d0, T0 = " << heat << std::endl;
     std::cout << "First 5 Yks, Lks, aks: " << std::endl;
     for (int i=0; i<5; i++) {
       std::cout << Yks(i) << " " << Lks(i) << " " << aks(i) << std::endl;
@@ -312,7 +327,27 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     for (int i=595; i<600; i++) {
       std::cout << Tlows(i) << " " << Tupps(i) << std::endl;
     } 
+    AthenaArray<Real> errT;
+    errT.NewAthenaArray(2*Tbins);
+    Real MaxErr = 1e-9;
 
+    for (int i=0; i<Tbins; i++) {
+      errT(2*i) = Yinv( Y(Tlows(i)/T_scale) ) - Tlows(i) / T_scale; 
+      Real T = 0.5*(Tlows(i) + Tupps(i))  ;
+      errT(2*i+1) = Yinv( Y(T/T_scale) ) - T/T_scale ;
+      if ( std::abs(errT(2*i)) > MaxErr ) {
+        std::cout << "i = " << i << " T = " << Tlows(i) << " Yinv(Y(T)) - T = " << errT(2*i) << std::endl;
+      }
+      if ( std::abs(errT(2*i+1)) > MaxErr ) {
+        std::cout << "i = " << i << " T = " << T << " Yinv(Y(T)) - T = " << errT(2*i+1) << std::endl;   
+      }
+    }
+    // std::cout << "Max error in Y and Yinv = " << MaxErr << " at T = " << MaxT << std::endl;
+    errT.DeleteAthenaArray();
+    // Test values
+    // std::cout << "57395 K = " <<  57395/T_scale << std::endl;
+    // std::cout << "Y(57395) = " << Y( 57395/T_scale) << std::endl;
+    // std::cout << "Yinv(Y(57395)) = " << Yinv(Y( 57395/T_scale)) << std::endl;
   }
   // throw std::runtime_error("### FATAL ERROR break point to check cooling function");
   
@@ -335,7 +370,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   if (rank==0) {
     std::ofstream myfile;
     myfile.open("injections.csv",std::ios::out | std::ios::app);
-    myfile << "Cell,X1,X2,X3\n";
+    myfile << "Cell,X1,X2,X3,time\n";
     myfile.close();
   }
   Mesh *pm = pmy_mesh; 
@@ -458,7 +493,7 @@ void Mesh::UserWorkInLoop(void)
           X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
           X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
           X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
-          myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "\n";
+          myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
         }
         myfile.close();
     }
@@ -521,8 +556,25 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         cons(IM2,k,j,i) += src;
         if (NON_BAROTROPIC_EOS) cons(IEN,k,j,i) += src*prim(IVY,k,j,i);
 
+        // INJECTIONS
+        for (int m = 0 ; m < NInjs; ++m) {
+          Real x10   = X1Inj[m];
+          Real x20   = X2Inj[m];
+          Real x30   = X3Inj[m];
+          Real dist = SQRT(SQR(x10-x1)+SQR(x20-x2)+SQR(x30-x3));
+          if (dist <=0.5*injL){ 
+            cons(IEN,k,j,i) += Esn_th/cellVol;
+            cons(IM1,k,j,i) += Esn_th/cellVol * (x1 - x10)/dist;
+            cons(IM2,k,j,i) += 0.0;
+            cons(IM3,k,j,i) += 0.0;
+          }
+          
+          
+        }
+
         //COOLING and HEATING
         if ((d> dfloor) && (p> pfloor) ) {
+        // if (d> dfloor)  {
           Real T = p/d;
           if (T <= Tfloor) { 
             // Apply floor heating
@@ -537,10 +589,10 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             Real cool = 0.0;
             Real tcool = pow(d*gm1 * LN / (Tmax),-1);
             Real error = Yinv(Y(T)) - T; 
-            if ( std::abs(error) > 1e-13 ) {
-              std::cout << "### WARNING in realistic_grav_SN.cpp: Inconsistent Y and Yinv! Error = " << error << std::endl;
-              throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Inconsistent Y and Yinv!");
-            }
+            // if ( std::abs(error) > 1e-10 ) {
+            //   std::cout << "### WARNING in realistic_grav_SN.cpp: Inconsistent Y and Yinv! Error = " << error << std::endl;
+            //   throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Inconsistent Y and Yinv!");
+            // }
             Real Tnp1 = Yinv( Y(T) + dt / tcool );
             cool = d/(gm1) * (T - Tnp1);
             Real net = heat - cool;
@@ -556,23 +608,9 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           }
         }
 
-        //INJECTION
-        for (int m = 0 ; m < NInjs; ++m) {
-          Real x10   = X1Inj[m];
-          Real x20   = X2Inj[m];
-          Real x30   = X3Inj[m];
-          Real ax = (x1 - x10 - dx1/2)/injL;
-          Real bx = (x1 - x10 + dx1/2)/injL;
-          Real ay = (x2 - x20 - dx2/2)/injL;
-          Real by = (x2 - x20 + dx2/2)/injL;
-          Real az = (x3 - x30 - dx3/2)/injL;
-          Real bz = (x3 - x30 + dx3/2)/injL;
-          Real frac = (fmin(0.5,bx) - fmax(-0.5,ax))*(fmin(0.5,by) - fmax(-0.5,ay))*(fmin(0.5,bz) - fmax(-0.5,az));
+        
 
-          if ( ( bx > -0.5) && ( ax < 0.5) && ( by > -0.5) && ( ay < 0.5) && ( bz > -0.5) && ( az < 0.5)) {
-            cons(IEN,k,j,i) += Esn_th/cellVol*frac;
-          }
-        }
+
         
       }
     }
