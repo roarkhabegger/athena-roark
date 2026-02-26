@@ -72,6 +72,7 @@ int TotalInjs = 0;
 double SNRate = 0.0;
 double injH = 100;
 double Esn_th = 0.0;
+double Esn_mom = 0.0;
 double injL = 0.0;
 
 
@@ -114,32 +115,31 @@ void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 Real (*gravity)(Real z);
 // Return signed gravitational acceleration at height z
 
-Real (*density)(Real z);
-// Return density at height z
-// Calculated by dens0* Exp[ ( \int dz g(z) ) / ( pres0/dens0 * (1 + invbeta) ) ]
+Real (*potential)(Real z);
+// Return gravitational potential at height z
 
 
 // SILCC FUNCTIONS
 Real gravity_SILCC(Real z) {
   //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
   Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
-  Real zd = B ; // in code units
-  return -1* g0 * tanh(z * l_scale/(2*zd * parsec));
+  Real zd = B  * parsec; // in code units
+  return -1* g0 * tanh(z * l_scale/(2*zd));
 }
-Real density_SILCC(Real z) {
+Real potential_SILCC(Real z) {
   //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
   Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
-  Real zd = B ; // in code units
+  Real zd = B  * parsec; // in code units
   // std::cout << "My Estimate = "<<  g0 << " cm/s^2"<< std::endl;
-  return dens0* exp( -2* g0*zd/(pres0*(1+invbeta)/dens0) * std::log( cosh(z/(2*zd)) ) );
+  return  2* g0*(zd/l_scale) * std::log( cosh(z*l_scale/(2*zd)) );
 }
 
 //TIGRESS FUNCTIONS
 Real gravity_TIGRESS(Real z) {
   return gravity_SILCC(z);
 }
-Real density_TIGRESS(Real z) {
-  return density_SILCC(z);
+Real potential_TIGRESS(Real z) {
+  return potential_SILCC(z);
 }
 
 
@@ -147,8 +147,8 @@ Real density_TIGRESS(Real z) {
 Real gravity_GALPOT(Real z) {
   return gravity_SILCC(z);
 }
-Real density_GALPOT(Real z) {
-  return density_SILCC(z);
+Real potential_GALPOT(Real z) {
+  return potential_SILCC(z);
 }
 
 
@@ -238,20 +238,20 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   int Grav_flag = pin->GetOrAddInteger("problem","Grav_flag",0);
   if (Grav_flag == 0) {
     gravity = gravity_SILCC;
-    density = density_SILCC;
+    potential = potential_SILCC;
   } else if (Grav_flag == 1) {
     gravity = gravity_TIGRESS;
-    density = density_TIGRESS;
+    potential = potential_TIGRESS;
   } else if (Grav_flag == 2) {
     gravity = gravity_GALPOT;
-    density = density_GALPOT;
+    potential = potential_GALPOT;
   } else {
     throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Invalid Grav_flag");
   }
 
-  A = pin->GetOrAddReal("problem","A",30.0);
-  B = pin->GetOrAddReal("problem","B",100.0);
-  C = pin->GetOrAddReal("problem","C",1.0);
+  A = pin->GetOrAddReal("problem","A",30.0); // surface density in Msun/pc^2
+  B = pin->GetOrAddReal("problem","B",100.0); // scale height in pc
+  C = pin->GetOrAddReal("problem","C",1.0); 
   D = pin->GetOrAddReal("problem","D",1.0);
   E = pin->GetOrAddReal("problem","E",1.0);  
 
@@ -265,6 +265,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
+  Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.0) * 1.0e51/(e_scale*pow(l_scale,3));
+
 
   HeatingRate = pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
   
@@ -385,8 +387,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for (int j=js; j<=je; ++j) {
       for (int i=is; i<=ie; ++i) {
         Real x2 = pcoord->x2v(j);
-        Real dens = density(x2);
-        Real pres = density(x2)/dens0 * pres0;
+
+        Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
+        Real pres = dens/dens0 * pres0;
         // Real grav = gravity(x2);
 
         phydro->u(IDN, k, j, i) = dens;
@@ -409,8 +412,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
           Real x2 = pcoord->x2v(j);
-          Real press =density(x2)/dens0 * pres0;
-          Real b0 = sqrt(2*press*invbeta);
+          Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
+          Real pres = dens/dens0 * pres0;
+          Real b0 = sqrt(2*pres*invbeta);
           pfield->b.x1f(k,j,i) = b0* std::cos(angle);
         }
       }
@@ -429,8 +433,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         for (int j=js; j<=je; ++j) {
           for (int i=is; i<=ie; ++i) {
             Real x2 = pcoord->x2v(j);
-            Real press = density(x2)/dens0 * pres0;
-            Real b0 = sqrt(2*press*invbeta);
+            Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
+            Real pres = dens/dens0 * pres0;
+            Real b0 = sqrt(2*pres*invbeta);
             pfield->b.x3f(k,j,i) = b0* std::sin(angle);
           }
         }
@@ -479,23 +484,23 @@ void Mesh::UserWorkInLoop(void)
   NInjs = 0;
   if ((dt < FLT_MAX) && (time > 0.0)) {
     if (rank == 0) {
-        std::ofstream myfile;
-        myfile.open("injections.csv",std::ios::out | std::ios::app);
-        std::poisson_distribution<int> distN(SNRate*dt);
-        NInjs = distN(gen);
-        Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
-        Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
-        Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
-        std::uniform_real_distribution<double> distx1(mesh_size.x1min+injL/2,mesh_size.x1max - x1d-injL/2);
-        std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
-        std::uniform_real_distribution<double> distx3(mesh_size.x3min+injL/2,mesh_size.x3max - x3d-injL/2);
-        for (int n = 1; n <= NInjs; n++){
-          X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min + 0.5*x1d);
-          X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min + 0.5*x2d);
-          X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min + 0.5*x3d);
-          myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
-        }
-        myfile.close();
+      std::ofstream myfile;
+      myfile.open("injections.csv",std::ios::out | std::ios::app);
+      std::poisson_distribution<int> distN(SNRate*dt);
+      NInjs = distN(gen);
+      Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
+      Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
+      Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
+      std::uniform_real_distribution<double> distx1(mesh_size.x1min+x1d+maxL,mesh_size.x1max-x1d-maxL);
+      std::uniform_real_distribution<double> distx2(-1*injH+x2d,injH-x3d);
+      std::uniform_real_distribution<double> distx3(mesh_size.x3min+x3d+maxL,mesh_size.x3max-x3d-maxL);
+      for (int n = 1; n <= NInjs; n++){
+        X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min);
+        X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min);
+        X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min);
+        myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
+      }
+      myfile.close();
     }
     
   } 
@@ -558,20 +563,25 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
         // INJECTIONS
         for (int m = 0 ; m < NInjs; ++m) {
-          Real x10   = X1Inj[m];
-          Real x20   = X2Inj[m];
-          Real x30   = X3Inj[m];
-          Real dist = SQRT(SQR(x10-x1)+SQR(x20-x2)+SQR(x30-x3));
-          if (dist <=0.5*injL){ 
-            cons(IEN,k,j,i) += Esn_th/cellVol;
-            cons(IM1,k,j,i) += Esn_th/cellVol * (x1 - x10)/dist;
-            cons(IM2,k,j,i) += 0.0;
-            cons(IM3,k,j,i) += 0.0;
-          }
-          
-          
-        }
+          Real x10   = X1Inj.at(m);
+          Real x20   = X2Inj.at(m);
+          Real x30   = X3Inj.at(m);
 
+          Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
+          Real frac = cellVol / (4*M_PI/3*std::pow(injL,3));
+
+          if (dist <= injL) {
+            cons(IEN,k,j,i) += Esn_th*frac/cellVol;
+            Real mom0 = std::sqrt(2*Esn_mom*frac/cellVol*cons(IDN,k,j,i));
+            if (dist > 0){
+              cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
+              cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
+              cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
+              cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
+            } 
+          }
+        }
+        
         //COOLING and HEATING
         if ((d> dfloor) && (p> pfloor) ) {
         // if (d> dfloor)  {
@@ -607,10 +617,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             cons(IEN,k,j,i) += net;
           }
         }
-
-        
-
-
         
       }
     }
