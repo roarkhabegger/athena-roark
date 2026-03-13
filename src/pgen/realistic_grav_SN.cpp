@@ -48,7 +48,7 @@
 //======================================================================================
 
 //Gravitational parameters
-Real A, B, C, D, E;
+Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tigress;
 
 //Initial paramters
 Real pres0, dens0, invbeta, angle;
@@ -136,19 +136,45 @@ Real potential_SILCC(Real z) {
 
 //TIGRESS FUNCTIONS
 Real gravity_TIGRESS(Real z) {
-  return gravity_SILCC(z);
+  Real g0 = 2*PI*G;
+  //Not sure about if scaling stuff is correct
+  Real zstar = B * parsec ;
+  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
+  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
+  //return gravity_SILCC(z);
 }
 Real potential_TIGRESS(Real z) {
-  return potential_SILCC(z);
+  Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
+  Real zstar = B * parsec;
+  Real R = E * 1000 * parsec;
+  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
+  Real rhodm = 2*PI*G* rho_tigress ;
+  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
+  //return potential_SILCC(z);
 }
 
 
 //GalPot Functions
 Real gravity_GALPOT(Real z) {
-  return gravity_SILCC(z);
+  Real pin = -1*A*std::tanh(z_peak/B) - C*std::tanh(z_peak/D) ;
+  Real z_peak = z_peak;
+  Real g0 ; 
+  if (std::abs(z) <= -1*z_peak) g0 = -1*A*std::tanh(z/B) - C*std::tanh(z/D) ;
+  else if (z <= z_peak) g0 = pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak))), 2)) ;
+  else g0 = -1*pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak))), 2)) ;
+  return g0 ;
+  //return gravity_SILCC(z);
 }
 Real potential_GALPOT(Real z) {
-  return potential_SILCC(z);
+  Real pin = -1*A*std::tanh(z_peak/B) - C*std::tanh(z_peak/D);
+  Real rh = rh ;
+  Real rho_0 = rho_0;
+  Real pot ;
+  if (std::abs(z) <= -1*z_peak) pot = -A*B*std::log(std::cosh(z/B)) - C*D*std::log(std::cosh(z/D)) ;
+  else if (z <= z_peak) pot = (pin*std::exp((1/4)/E)*z_peak*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/z_peak))/(2*std::sqrt(E)))) / (2*std::sqrt(E));
+  else pot = -1*(pin*std::exp((1/4)/E)*z_peak*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/z_peak))/(2*std::sqrt(E)))) / (2*std::sqrt(E)) ;
+  return pot ;
+  //return potential_SILCC(z);
 }
 
 
@@ -242,9 +268,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   } else if (Grav_flag == 1) {
     gravity = gravity_TIGRESS;
     potential = potential_TIGRESS;
+    rho_tigress = pin->GetReal("problem", "rho_tigress");
   } else if (Grav_flag == 2) {
     gravity = gravity_GALPOT;
     potential = potential_GALPOT;
+    z_peak = pin->GetReal("problem","z_peak");
+    rh = pin->GetReal("problem","rh");
+    rho_0 = pin->GetReal("problem","rho_0");
   } else {
     throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Invalid Grav_flag");
   }
@@ -254,6 +284,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   C = pin->GetOrAddReal("problem","C",1.0); 
   D = pin->GetOrAddReal("problem","D",1.0);
   E = pin->GetOrAddReal("problem","E",1.0);  
+  R = pin->GetReal("problem","R");
+
 
   pfloor = pin->GetReal("hydro","pfloor");
   dfloor = pin->GetReal("hydro","dfloor");
