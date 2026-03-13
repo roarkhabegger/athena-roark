@@ -74,6 +74,7 @@ double injH = 100;
 double Esn_th = 0.0;
 double Esn_mom = 0.0;
 double injL = 0.0;
+Real min_dt = FLT_MAX;
 
 
 
@@ -99,7 +100,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
                AthenaArray<Real> &cons_scalar);
 
-
+Real MyTimeStep(MeshBlock *pmb);
 
 //Floors for Diode boundary conds
 Real dfloor, pfloor; // Floor values for density and rpessure
@@ -131,7 +132,7 @@ Real potential_SILCC(Real z) {
   Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
   Real zd = B  * parsec; // in code units
   // std::cout << "My Estimate = "<<  g0 << " cm/s^2"<< std::endl;
-  return  2* g0*(zd/l_scale) * std::log( cosh(z*l_scale/(2*zd)) );
+  return  g0*(2*zd/l_scale) * std::log( cosh(z*l_scale/(2*zd)) );
 }
 
 //TIGRESS FUNCTIONS
@@ -195,6 +196,32 @@ Real Y(Real T) {
   Real a5 = 1.0 - std::pow( (Tlows(z) / (T*T_scale)) , (aks(z) - 1.0) );
   return Yks(z) + a1*a2*a3*a4*a5;
 }
+Real alpha(Real T) {
+  //uniform bins in log T
+  int z = std::floor((std::log10(T*T_scale) -2)/ 0.01);
+  if (z < 0) {
+    z = 0;
+  }
+  if (z >= Tbins) {
+    z = Tbins - 1;
+  }
+  
+  return aks(z);
+}
+
+Real lambda(Real T) {
+  //uniform bins in log T
+  int z = std::floor((std::log10(T*T_scale) -2)/ 0.01);
+  if (z < 0) {
+    z = 0;
+  }
+  if (z >= Tbins) {
+    z = Tbins - 1;
+  }
+  
+  return Lks(z)/(e_scale  * n_scale/t_scale) * std::pow(T*T_scale, aks(z));
+}
+
 
 Real Yinv(Real y) {
   //find bracketing indicies of y in Yks array with binary tree
@@ -290,15 +317,15 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   pfloor = pin->GetReal("hydro","pfloor");
   dfloor = pin->GetReal("hydro","dfloor");
 
-
+  min_dt = pin->GetOrAddReal("problem","min_dt",1e-2);
   SNRate = pin->GetReal("problem","SNRate");
   injH = pin->GetOrAddReal("problem","InjH",100); 
   injL = pin->GetReal("problem","InjL");
 
-  
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.0) * 1.0e51/(e_scale*pow(l_scale,3));
 
+  EnrollUserTimeStepFunction(MyTimeStep);
 
   HeatingRate = pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
   
@@ -413,15 +440,16 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
   Real gm1 = myGamma - 1;
 
-
+  
   // Initialize hydro variable
   for(int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
       for (int i=is; i<=ie; ++i) {
         Real x2 = pcoord->x2v(j);
-
-        Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
-        Real pres = dens/dens0 * pres0;
+        Real T0 = pres0/dens0;
+        Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0)-1));
+        Real dens = HeatingRate / lambda(Tz);  
+        Real pres = dens * Tz ;
         // Real grav = gravity(x2);
 
         phydro->u(IDN, k, j, i) = dens;
@@ -444,8 +472,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
           Real x2 = pcoord->x2v(j);
-          Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
-          Real pres = dens/dens0 * pres0;
+          Real T0 = pres0/dens0;
+          Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
+          Real dens = HeatingRate / lambda(Tz);  
+          Real pres = dens * Tz ;
           Real b0 = sqrt(2*pres*invbeta);
           pfield->b.x1f(k,j,i) = b0* std::cos(angle);
         }
@@ -465,8 +495,10 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         for (int j=js; j<=je; ++j) {
           for (int i=is; i<=ie; ++i) {
             Real x2 = pcoord->x2v(j);
-            Real dens = dens0 * exp( -(potential(x2) - potential(0)) / (pres0*(1+invbeta)/dens0) ) ;
-            Real pres = dens/dens0 * pres0;
+            Real T0 = pres0/dens0;
+            Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
+            Real dens = HeatingRate / lambda(Tz);  
+            Real pres = dens * Tz ;
             Real b0 = sqrt(2*pres*invbeta);
             pfield->b.x3f(k,j,i) = b0* std::sin(angle);
           }
@@ -506,7 +538,7 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkInLoop(void)
 {
-  
+  Real maxL = injL;
   int size, rank;
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -593,6 +625,46 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         cons(IM2,k,j,i) += src;
         if (NON_BAROTROPIC_EOS) cons(IEN,k,j,i) += src*prim(IVY,k,j,i);
 
+        
+        
+        //COOLING and HEATING
+        if ((d> dfloor) && (p> pfloor) ) {
+        // if (d> dfloor)  {
+          Real T = p/d;
+          if (T <= Tfloor) { 
+            // Apply floor heating
+            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+          } else if (T >= Tceil) {
+            // Apply ceiling cooling
+            cons(IEN,k,j,i) -= d*d*dt*lambda(T);
+            // cons(IEN,k,j,i) += (T - Tceil)*d/(gm1);
+          } else {
+            //Find cooling and heating rates
+            Real heat = HeatingRate * d * dt;
+
+            Real cool = 0.0;
+            Real tcool = pow(d*gm1 * LN / (Tmax),-1);
+            // Real error = Yinv(Y(T)) - T; 
+            // if ( std::abs(error) > 1e-10 ) {
+            //   std::cout << "### WARNING in realistic_grav_SN.cpp: Inconsistent Y and Yinv! Error = " << error << std::endl;
+            //   throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Inconsistent Y and Yinv!");
+            // }
+            Real Tnp1 = Yinv( Y(T) + dt / tcool );
+            cool = d/(gm1) * (T - Tnp1);
+            Real net = heat - cool;
+            Real newT = T + net * gm1 / d;
+            if (newT < Tfloor) {
+              net = (Tfloor - T)* d / gm1;
+            } else if (newT > Tceil) {
+              net = -1*d*d*dt*lambda(T);
+              // net = (Tceil - T)* d / gm1;
+            } else {
+              // do nothing
+            }
+            cons(IEN,k,j,i) += net;
+          }
+        }
+
         // INJECTIONS
         for (int m = 0 ; m < NInjs; ++m) {
           Real x10   = X1Inj.at(m);
@@ -614,46 +686,30 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           }
         }
         
-        //COOLING and HEATING
-        if ((d> dfloor) && (p> pfloor) ) {
-        // if (d> dfloor)  {
-          Real T = p/d;
-          if (T <= Tfloor) { 
-            // Apply floor heating
-            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
-          } else if (T >= Tceil) {
-            // Apply ceiling cooling
-            cons(IEN,k,j,i) += (T - Tceil)*d/(gm1);
-          } else {
-            //Find cooling and heating rates
-            Real heat = HeatingRate* d * dt;
-
-            Real cool = 0.0;
-            Real tcool = pow(d*gm1 * LN / (Tmax),-1);
-            Real error = Yinv(Y(T)) - T; 
-            // if ( std::abs(error) > 1e-10 ) {
-            //   std::cout << "### WARNING in realistic_grav_SN.cpp: Inconsistent Y and Yinv! Error = " << error << std::endl;
-            //   throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Inconsistent Y and Yinv!");
-            // }
-            Real Tnp1 = Yinv( Y(T) + dt / tcool );
-            cool = d/(gm1) * (T - Tnp1);
-            Real net = heat - cool;
-            Real newT = T + net * gm1 / d;
-            if (newT < Tfloor) {
-              net = (Tfloor - T)* d / gm1;
-            } else if (newT > Tceil) {
-              net = (Tceil - T)* d / gm1;
-            } else {
-              // do nothing
-            }
-            cons(IEN,k,j,i) += net;
-          }
-        }
-        
       }
     }
   }
   return;
+}
+
+Real MyTimeStep(MeshBlock *pmb)
+{
+  // Real min_dt=1e-4;
+
+  // for (int k=pmb->ks; k<=pmb->ke; ++k) {
+  //   for (int j=pmb->js; j<=pmb->je; ++j) {
+  //     for (int i=pmb->is; i<=pmb->ie; ++i) {
+  //       Real dt;
+  //       dt = ... // calculate your own time step here
+  //       min_dt = std::min(min_dt, dt);
+  //     }
+  //   }
+  // }
+  // if (Ninjs >1) {
+  //   return 1e-6;
+  // } else {
+    return min_dt;
+  // }
 }
 
 //----------------------------------------------------------------------------------------
