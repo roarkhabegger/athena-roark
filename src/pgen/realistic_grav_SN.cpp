@@ -317,7 +317,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   pfloor = pin->GetReal("hydro","pfloor");
   dfloor = pin->GetReal("hydro","dfloor");
 
-  min_dt = pin->GetOrAddReal("problem","min_dt",1e-2);
+  min_dt = pin->GetOrAddReal("problem","min_dt",FLT_MAX);
   SNRate = pin->GetReal("problem","SNRate");
   injH = pin->GetOrAddReal("problem","InjH",100); 
   injL = pin->GetReal("problem","InjL");
