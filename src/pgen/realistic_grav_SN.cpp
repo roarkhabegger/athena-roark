@@ -73,6 +73,7 @@ double SNRate = 0.0;
 double injH = 100;
 double Esn_th = 0.0;
 double Esn_mom = 0.0;
+double Msn = 0.0;
 double injL = 0.0;
 Real min_dt = FLT_MAX;
 
@@ -118,6 +119,7 @@ Real (*gravity)(Real z);
 
 Real (*potential)(Real z);
 // Return gravitational potential at height z
+
 
 
 // SILCC FUNCTIONS
@@ -219,7 +221,7 @@ Real lambda(Real T) {
     z = Tbins - 1;
   }
   
-  return Lks(z)/(e_scale  * n_scale/t_scale) * std::pow(T*T_scale, aks(z));
+  return (Lks(z)* std::pow(T*T_scale, aks(z)))/(e_scale  /(n_scale*n_scale*t_scale)) ;
 }
 
 
@@ -257,6 +259,9 @@ Real Yinv(Real y) {
   return T / T_scale; // return in code units
 }
 
+Real Heating(Real z){
+  return HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+}
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
@@ -284,7 +289,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   Real gm1 = pin->GetReal("hydro","gamma") - 1;
   
-  dens0 = n0;
+  dens0 = n0 / n_scale; 
 
   pres0 = k_B*T0 *n0 / e_scale;
 
@@ -324,10 +329,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.0) * 1.0e51/(e_scale*pow(l_scale,3));
-
+  Msn = pin->GetOrAddReal("problem","Msn",1.0) * M_sun/(rho_scale*pow(l_scale,3));
   EnrollUserTimeStepFunction(MyTimeStep);
 
-  HeatingRate = pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
   
   Tbins = 600;
   int start_file[2] = {0, 20};
@@ -355,6 +359,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HDF5ReadRealArray("cooling.hdf5", "Tmax", 1, start_mem, count_scalar, 1, start_mem, count_scalar, Tmax_arr);
   HDF5ReadRealArray("cooling.hdf5", "LN", 1, start_fileLN, count_scalar, 1, start_mem, count_scalar, LN_arr);
   
+  HeatingRate = dens0 * lambda(T0/T_scale) ;//pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
   
   EnrollUserExplicitSourceFunction(mySource);
 
@@ -368,10 +373,13 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real Temp0 = pres0/dens0;
     Real tcool = pow(dens0*gm1 * LN / (Tmax),-1);
     Real Tnp1 = Yinv( Y(Temp0) + dt / tcool );
-    Real cool = dens0/(gm1) * (Temp0 - Tnp1);
-    Real heat = HeatingRate * dens0 * dt;
-    std::cout << "Cooling rate for a kyr at d0, T0 = " << cool << std::endl;
-    std::cout << "Heating rate for a kyr at d0, T0 = " << heat << std::endl;
+    Real cool1 = 1/(gm1) * (Temp0 - Tnp1) / dt;
+    Real heat = Heating(0) ;  
+    Real cool2 = dens0*lambda(Temp0);
+    std::cout << "Cooling rate from Yinv = " << cool1 << std::endl;
+    std::cout << "Cooling rate at d0, T0 = " << cool2 << std::endl;
+    std::cout << "Heating rate at d0, T0 = " << heat << std::endl;
+    std::cout << "net Time = " << (Temp0/(gm1))/(heat - cool2) << " t_scale " << std::endl;
     std::cout << "First 5 Yks, Lks, aks: " << std::endl;
     for (int i=0; i<5; i++) {
       std::cout << Yks(i) << " " << Lks(i) << " " << aks(i) << std::endl;
@@ -446,10 +454,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
     for (int j=js; j<=je; ++j) {
       for (int i=is; i<=ie; ++i) {
         Real x2 = pcoord->x2v(j);
+
+
         Real T0 = pres0/dens0;
-        Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0)-1));
-        Real dens = HeatingRate / lambda(Tz);  
-        Real pres = dens * Tz ;
+        Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+        Real pres = dens * T0 ;
+        // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0)-1));
+        // Real dens = HeatingRate / lambda(Tz);  
+        // Real pres = dens * T0 ;
         // Real grav = gravity(x2);
 
         phydro->u(IDN, k, j, i) = dens;
@@ -472,10 +484,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
           Real x2 = pcoord->x2v(j);
+          // Real T0 = pres0/dens0;
+          // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
+          // Real dens = HeatingRate / lambda(Tz);  
+          // Real pres = dens * Tz ;
           Real T0 = pres0/dens0;
-          Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
-          Real dens = HeatingRate / lambda(Tz);  
-          Real pres = dens * Tz ;
+          Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+          Real pres = dens * T0 ;
           Real b0 = sqrt(2*pres*invbeta);
           pfield->b.x1f(k,j,i) = b0* std::cos(angle);
         }
@@ -496,9 +511,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           for (int i=is; i<=ie; ++i) {
             Real x2 = pcoord->x2v(j);
             Real T0 = pres0/dens0;
-            Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
-            Real dens = HeatingRate / lambda(Tz);  
-            Real pres = dens * Tz ;
+            Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+            Real pres = dens * T0 ;
+            // Real T0 = pres0/dens0;
+            // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
+            // Real dens = HeatingRate / lambda(Tz);  
+            // Real pres = dens * Tz ;
             Real b0 = sqrt(2*pres*invbeta);
             pfield->b.x3f(k,j,i) = b0* std::sin(angle);
           }
@@ -555,20 +573,18 @@ void Mesh::UserWorkInLoop(void)
       Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
       Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
       Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
-      std::uniform_real_distribution<double> distx1(mesh_size.x1min+x1d+maxL,mesh_size.x1max-x1d-maxL);
-      std::uniform_real_distribution<double> distx2(-1*injH+x2d,injH-x3d);
-      std::uniform_real_distribution<double> distx3(mesh_size.x3min+x3d+maxL,mesh_size.x3max-x3d-maxL);
+      std::uniform_real_distribution<double> distx1(mesh_size.x1min+maxL,mesh_size.x1max-x1d-maxL);
+      std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
+      std::uniform_real_distribution<double> distx3(mesh_size.x3min+maxL,mesh_size.x3max-x3d-maxL);
       for (int n = 1; n <= NInjs; n++){
-        X1Inj.insert(X1Inj.end(), round((distx1(gen)-mesh_size.x1min)/x1d)*x1d + mesh_size.x1min);
-        X2Inj.insert(X2Inj.end(), round((distx2(gen)-mesh_size.x2min)/x2d)*x2d + mesh_size.x2min);
-        X3Inj.insert(X3Inj.end(), round((distx3(gen)-mesh_size.x3min)/x3d)*x3d + mesh_size.x3min);
+        X1Inj.insert(X1Inj.end(), (round((distx1(gen)-mesh_size.x1min)/x1d) + 0.5)*x1d + mesh_size.x1min);
+        X2Inj.insert(X2Inj.end(), (round((distx2(gen)-mesh_size.x2min)/x2d) + 0.5)*x2d + mesh_size.x2min);
+        X3Inj.insert(X3Inj.end(), (round((distx3(gen)-mesh_size.x3min)/x3d) + 0.5)*x3d + mesh_size.x3min);
         myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
       }
       myfile.close();
     }
-    
-  } 
-  
+  }
   MPI_Bcast(&NInjs,1,MPI_INT,0,MPI_COMM_WORLD);
 
   if ((NInjs > 0) && (rank != 0)){
@@ -597,7 +613,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
   // Build Townsend Cooling Functions
   Real Tmax = Tmax_arr(0) / T_scale;
-  Real LN = LN_arr(0) / (e_scale/t_scale * SQR(n_scale)); 
+  Real LN = LN_arr(0) / (e_scale/(t_scale * SQR(n_scale))); 
   Real Tfloor = Tlows(0) / T_scale; // in code units
   Real Tceil = Tmax_arr(0) / T_scale; // in code units
   
@@ -633,33 +649,35 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           Real T = p/d;
           if (T <= Tfloor) { 
             // Apply floor heating
-            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+            cons(IEN,k,j,i) += Heating(x2) * d * dt;//(Tfloor - T)*d/(gm1);
           } else if (T >= Tceil) {
             // Apply ceiling cooling
             cons(IEN,k,j,i) -= d*d*dt*lambda(T);
             // cons(IEN,k,j,i) += (T - Tceil)*d/(gm1);
           } else {
             //Find cooling and heating rates
-            Real heat = HeatingRate * d * dt;
-
-            Real cool = 0.0;
-            Real tcool = pow(d*gm1 * LN / (Tmax),-1);
-            // Real error = Yinv(Y(T)) - T; 
-            // if ( std::abs(error) > 1e-10 ) {
-            //   std::cout << "### WARNING in realistic_grav_SN.cpp: Inconsistent Y and Yinv! Error = " << error << std::endl;
-            //   throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Inconsistent Y and Yinv!");
-            // }
-            Real Tnp1 = Yinv( Y(T) + dt / tcool );
-            cool = d/(gm1) * (T - Tnp1);
-            Real net = heat - cool;
-            Real newT = T + net * gm1 / d;
-            if (newT < Tfloor) {
-              net = (Tfloor - T)* d / gm1;
-            } else if (newT > Tceil) {
-              net = -1*d*d*dt*lambda(T);
-              // net = (Tceil - T)* d / gm1;
+            Real heat_rate = Heating(x2);
+            Real cool_rate = d*lambda(T);
+            Real tnet =  cons(IEN,k,j,i) / (heat_rate - cool_rate);
+            Real net = 0.0;
+            if (std::fabs(tnet) > dt) {
+              net = (heat_rate - cool_rate)*dt*d;
             } else {
-              // do nothing
+              Real heat = Heating(x2) * d * dt;
+              Real cool = 0.0;
+              Real tcool = pow(d*gm1 * LN / (Tmax),-1);
+              Real Tnp1 = Yinv( Y(T) + dt / tcool );
+              cool = d/(gm1) * (T - Tnp1);
+              net = heat - cool;
+              Real newT = T + net * gm1 / d;
+              if (newT < Tfloor) {
+                net = (Tfloor - T)* d / gm1;
+              } else if (newT > Tceil) {
+                // net = -1*d*d*dt*lambda(T);
+                net = (Tceil - T)* d / gm1;
+              } else {
+                // do nothing
+              }
             }
             cons(IEN,k,j,i) += net;
           }
@@ -673,14 +691,21 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
           Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
           Real frac = cellVol / (4*M_PI/3*std::pow(injL,3));
-
+          
           if (dist <= injL) {
             cons(IEN,k,j,i) += Esn_th*frac/cellVol;
-            Real mom0 = std::sqrt(2*Esn_mom*frac/cellVol*cons(IDN,k,j,i));
-            if (dist > 0){
+
+            // Real mom0 = std::sqrt(2*Esn_mom*frac/cellVol*cons(IDN,k,j,i));
+            // Real rhoinj = 1e-2;
+            Real rho_inj = Msn*frac/cellVol;
+            Real mom0 = std::sqrt(2*Esn_mom*frac/cellVol *(cons(IDN,k,j,i) + rho_inj));
+            
+            if ((dist > 0) && (cons(IDN,k,j,i) >= rho_inj)){
+              // cons(IDN,k,j,i) += rho_inj;
               cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
               cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
               cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
+              // cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
               cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
             } 
           }
