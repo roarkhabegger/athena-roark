@@ -9,7 +9,7 @@
 #SBATCH -o slurm-%j.out
 
 
-cd /u/roark/athena-roark/
+cd /home/rhabegger/athena-roark/
 module reset # drop modules and explicitly load the ones needed
              # (good job metadata and reproducibility)
              # $WORK and $SCRATCH are now set
@@ -20,5 +20,6 @@ make clean
 # sh myConfs/cr_icm_hpc.sh
 # sh myConfs/cr_sne_hpc.sh
 sh myConfs/real_grav_conf.sh
+# sh myConfs/sn_make.sh
 
 make -j 32

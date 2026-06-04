@@ -44,17 +44,15 @@
 
 //======================================================================================
 //! \fn void MeshBlock::ProblemGenerator(ParameterInput *pin)
-//  \brief Stratified medium with supernova injections and realistic gravitational profile
+//  \brief Single Supernova injection with Switch between Explicit Cooling and Exact Cooling
 //======================================================================================
-
-//Gravitational parameters
-Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tigress;
 
 //Initial paramters
 Real pres0, dens0, invbeta, angle;
 
 //Cooling Parameters
-Real HeatingRate, cool_CFL;
+Real HeatingRate;
+Real cool_CFL;
 int Tbins;
 AthenaArray<Real> Lks, aks, Tlows, Tupps, Yks, Tmax_arr, LN_arr;
 Real Y(Real T);
@@ -62,15 +60,6 @@ Real invY(Real T);
 
 
 //Injection information
-std::vector<double> X1Inj = {};
-std::vector<double> X2Inj = {};
-std::vector<double> X3Inj = {};
-unsigned seed_inj;
-std::default_random_engine gen;
-int NInjs = 0;
-int TotalInjs = 0;
-double SNRate = 0.0;
-double injH = 100;
 double Esn_th = 0.0;
 double Esn_mom = 0.0;
 double Msn = 0.0;
@@ -105,81 +94,6 @@ Real MyTimeStep(MeshBlock *pmb);
 
 //Floors for Diode boundary conds
 Real dfloor, pfloor; // Floor values for density and rpessure
-
-//x2 boundaries with vacuum
-void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh);
-void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh);
-
-Real (*gravity)(Real z);
-// Return signed gravitational acceleration at height z
-
-Real (*potential)(Real z);
-// Return gravitational potential at height z
-
-
-
-// SILCC FUNCTIONS
-Real gravity_SILCC(Real z) {
-  //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
-  Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
-  Real zd = B  * parsec; // in code units
-  return -1* g0 * tanh(z * l_scale/(2*zd));
-}
-Real potential_SILCC(Real z) {
-  //In SILCC Case, Assume A is sigma_star in Msun/pc^2 and B is z_star in code units (pc)
-  Real g0 = 2*PI*G*(A*(M_sun/pow(parsec,2))) /(l_scale / pow(t_scale,2)); // in code units
-  Real zd = B  * parsec; // in code units
-  // std::cout << "My Estimate = "<<  g0 << " cm/s^2"<< std::endl;
-  return  g0*(2*zd/l_scale) * std::log( cosh(z*l_scale/(2*zd)) );
-}
-
-//TIGRESS FUNCTIONS
-Real gravity_TIGRESS(Real z) {
-  Real g0 = 2*PI*G;
-  //Not sure about if scaling stuff is correct
-  Real zstar = B * parsec ;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
-  //return gravity_SILCC(z);
-}
-Real potential_TIGRESS(Real z) {
-  Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
-  Real zstar = B * parsec;
-  Real R = E * 1000 * parsec;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  Real rhodm = 2*PI*G* rho_tigress ;
-  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
-  //return potential_SILCC(z);
-}
-
-
-//GalPot Functions
-Real gravity_GALPOT(Real z) {
-  Real z_peak = z_peak * parsec * 1000 ;
-  Real pin = -1*A*std::tanh((z_peak/l_scale)/B) - C*std::tanh((z_peak/l_scale)/D) ;
-  Real g0 ; 
-  if (std::abs(z) <= -1*z_peak/l_scale) g0 = -1*A*std::tanh(z/B) - C*std::tanh(z/D) ;
-  else if (z <= z_peak/l_scale) g0 = pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak/l_scale))), 2)) ;
-  else g0 = -1*pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak/l_scale))), 2)) ;
-  return g0 ;
-  //return gravity_SILCC(z);
-}
-Real potential_GALPOT(Real z) {
-  Real rh = rh ;
-  Real rho_0 = rho_0 * (M_sun/pow(parsec,3));
-  Real z_peak = z_peak * parsec * 1000 ;
-  Real pin = -1*A*std::tanh((z_peak/l_scale)/B) - C*std::tanh((z_peak/l_scale)/D);
-  Real pot ;
-  if (std::abs(z) <= -1*z_peak/l_scale) pot = -A*B*std::log(std::cosh(z/B)) - C*D*std::log(std::cosh(z/D)) ;
-  else if (z <= z_peak/l_scale) pot = (pin*std::exp((1/4)/E)*(z_peak/l_scale)*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/(z_peak/l_scale)))/(2*std::sqrt(E)))) / (2*std::sqrt(E));
-  else pot = -1*(pin*std::exp((1/4)/E)*(z_peak/l_scale)*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/(z_peak/l_scale)))/(2*std::sqrt(E)))) / (2*std::sqrt(E)) ;
-  return pot ;
-  //return potential_SILCC(z);
-}
 
 
 Real Y(Real T) {
@@ -261,22 +175,18 @@ Real Yinv(Real y) {
 }
 
 Real Heating(Real z){
-  return HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+  return HeatingRate ;//* std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  seed_inj = pin->GetOrAddInteger("problem","seed_inj",0);
   if (rank == 0){
     std::cout << "Temp Scale = " << T_scale << std::endl;
     std::cout << "v Scale    = " << v_scale << std::endl;
     std::cout << "e Scale    = " << e_scale << std::endl;
     std::cout << "B Scale    = " << B_scale << std::endl;
     std::cout << "multilevel = " << multilevel << std::endl;
-    unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
-    if (seed_inj != 0 ) seed1 = seed_inj;
-    gen.seed(seed1);
   }
 
   //Load in parameters
@@ -294,44 +204,15 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
   pres0 = k_B*T0 *n0 / e_scale;
 
-  int Grav_flag = pin->GetOrAddInteger("problem","Grav_flag",0);
-  if (Grav_flag == 0) {
-    gravity = gravity_SILCC;
-    potential = potential_SILCC;
-  } else if (Grav_flag == 1) {
-    gravity = gravity_TIGRESS;
-    potential = potential_TIGRESS;
-    rho_tigress = pin->GetReal("problem", "rho_tigress");
-  } else if (Grav_flag == 2) {
-    gravity = gravity_GALPOT;
-    potential = potential_GALPOT;
-    z_peak = pin->GetReal("problem","z_peak");
-    rh = pin->GetReal("problem","rh");
-    rho_0 = pin->GetReal("problem","rho_0");
-  } else {
-    throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Invalid Grav_flag");
-  }
-
-  A = pin->GetOrAddReal("problem","A",30.0); // surface density in Msun/pc^2
-  B = pin->GetOrAddReal("problem","B",100.0); // scale height in pc
-  C = pin->GetOrAddReal("problem","C",1.0); 
-  D = pin->GetOrAddReal("problem","D",1.0);
-  E = pin->GetOrAddReal("problem","E",1.0);  
-  R = pin->GetReal("problem","R");
-
-
   pfloor = pin->GetReal("hydro","pfloor");
   dfloor = pin->GetReal("hydro","dfloor");
 
   max_dt = pin->GetOrAddReal("problem","max_dt",FLT_MAX);
-  SNRate = pin->GetReal("problem","SNRate");
-  injH = pin->GetOrAddReal("problem","InjH",100); 
 
   Real dx = (pin->GetReal("mesh","x1max") - pin->GetReal("mesh","x1min"))/(pin->GetInteger("mesh","nx1"));
   injL = pin->GetReal("problem","InjL") * dx;
-
-  Esn_th = pin->GetOrAddReal("problem","Esn_th",0.8) * 1.0e51/(e_scale*pow(l_scale,3));
-  Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.2) * 1.0e51/(e_scale*pow(l_scale,3));
+  Esn_th = pin->GetOrAddReal("problem","Esn_th",1) * 1.0e51/(e_scale*pow(l_scale,3));
+  Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.0) * 1.0e51/(e_scale*pow(l_scale,3));
   Msn = pin->GetOrAddReal("problem","Msn",1.0) * M_sun/(rho_scale*pow(l_scale,3));
   EnrollUserTimeStepFunction(MyTimeStep);
 
@@ -423,15 +304,6 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
   // throw std::runtime_error("### FATAL ERROR break point to check cooling function");
   
-  
-  if (mesh_bcs[BoundaryFace::inner_x2] == BoundaryFlag::user) {
-    EnrollUserBoundaryFunction(BoundaryFace::inner_x2, DiodeInnerX2);
-  }
-
-  if (mesh_bcs[BoundaryFace::outer_x2] == BoundaryFlag::user) {
-    EnrollUserBoundaryFunction(BoundaryFace::outer_x2, DiodeOuterX2);
-  } 
-
   return;
 }
 
@@ -439,33 +311,31 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
-    std::ofstream myfile;
-    myfile.open("injections.csv",std::ios::out | std::ios::app);
-    myfile << "Cell,X1,X2,X3,time\n";
-    myfile.close();
-  }
+
   Mesh *pm = pmy_mesh; 
   Real myGamma = pin->GetReal("hydro","gamma");
 
-
   Real gm1 = myGamma - 1;
 
-  
+  Real x10 = 0.5*( pm->mesh_size.x1max + pm->mesh_size.x1min);
+  Real x20 = 0.5*( pm->mesh_size.x2max + pm->mesh_size.x2min);
+  Real x30 = 0.5*( pm->mesh_size.x3max + pm->mesh_size.x3min);
   // Initialize hydro variable
   for(int k=ks; k<=ke; ++k) {
     for (int j=js; j<=je; ++j) {
       for (int i=is; i<=ie; ++i) {
-        Real x2 = pcoord->x2v(j);
-
+        Real x1 = pcoord->x1v(i);
+        Real x2 = pcoord->x2v(j) ;
+        Real x3 = pcoord->x3v(k);
+        Real dx1 = pcoord->dx1v(i);
+        Real dx2 = pcoord->dx2v(j);
+        Real dx3 = pcoord->dx3v(k);
+        Real cellVol = pcoord->GetCellVolume(k,j,i);
 
         Real T0 = pres0/dens0;
-        Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+        Real dens = dens0 ;
         Real pres = dens * T0 ;
-        // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0)-1));
-        // Real dens = HeatingRate / lambda(Tz);  
-        // Real pres = dens * T0 ;
-        // Real grav = gravity(x2);
+
 
         phydro->u(IDN, k, j, i) = dens;
         phydro->u(IM1, k, j, i) = 0.0;
@@ -475,24 +345,35 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (NON_BAROTROPIC_EOS) {
             phydro->u(IEN, k, j, i) = pres/gm1;
         }
+
+        //Apply Injection
+        Real dist = std::sqrt(SQR(x1 - (x10+0.5*dx1)) +  SQR(x2 - (x20+0.5*dx2)) +  SQR(x3 - (x30+0.5*dx3)) );
+        Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
+        
+        if (dist <= injL) {
+          phydro->u(IEN,k,j,i) += Esn_th/SN_Vol;
+          phydro->u(IDN,k,j,i) += Msn/SN_Vol;
+          Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol) *(phydro->u(IDN,k,j,i)));
+
+          if ((dist > 0) ){
+            phydro->u(IM1,k,j,i) += mom0 * (x1)/dist;
+            phydro->u(IM2,k,j,i) += mom0 * (x2)/dist;
+            phydro->u(IM3,k,j,i) += mom0 * (x3)/dist;
+            phydro->u(IEN,k,j,i) += 0.5*SQR(mom0)/(phydro->u(IDN,k,j,i));
+          } 
+        }
       }
     }
   }
-  // std::cout << " Max HSE Err = " << maxErr << std::endl;
-  
-  // Add horizontal magnetic field lines, to show streaming and diffusion
-  // along magnetic field ines
+
+
   if (MAGNETIC_FIELDS_ENABLED) {
     for (int k=ks; k<=ke; ++k) {
       for (int j=js; j<=je; ++j) {
         for (int i=is; i<=ie+1; ++i) {
-          Real x2 = pcoord->x2v(j);
-          // Real T0 = pres0/dens0;
-          // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
-          // Real dens = HeatingRate / lambda(Tz);  
-          // Real pres = dens * Tz ;
+
           Real T0 = pres0/dens0;
-          Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+          Real dens = dens0 ;
           Real pres = dens * T0 ;
           Real b0 = sqrt(2*pres*invbeta);
           pfield->b.x1f(k,j,i) = b0* std::cos(angle);
@@ -514,12 +395,8 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           for (int i=is; i<=ie; ++i) {
             Real x2 = pcoord->x2v(j);
             Real T0 = pres0/dens0;
-            Real dens = dens0 * std::exp( -1* (potential(x2) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+            Real dens = dens0 ;
             Real pres = dens * T0 ;
-            // Real T0 = pres0/dens0;
-            // Real Tz = T0 + (potential(x2) - potential(0))/((1+invbeta)* (alpha(T0))-1);
-            // Real dens = HeatingRate / lambda(Tz);  
-            // Real pres = dens * Tz ;
             Real b0 = sqrt(2*pres*invbeta);
             pfield->b.x3f(k,j,i) = b0* std::sin(angle);
           }
@@ -542,6 +419,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
       }
     }
   }
+
+  
+
   return;
 }
 
@@ -550,57 +430,14 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
-    std::cout << "Total Number of Injections = " << TotalInjs << std::endl;
-  }
+
 }
 
 
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkInLoop(void)
 {
-  Real maxL = injL;
-  int size, rank;
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  X1Inj.clear();
-  X2Inj.clear();
-  X3Inj.clear();
-  NInjs = 0;
-  if ((dt < FLT_MAX) && (time > 0.0)) {
-    if (rank == 0) {
-      std::ofstream myfile;
-      myfile.open("injections.csv",std::ios::out | std::ios::app);
-      std::poisson_distribution<int> distN(SNRate*dt);
-      NInjs = distN(gen);
-      Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
-      Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
-      Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
-      std::uniform_real_distribution<double> distx1(mesh_size.x1min+maxL,mesh_size.x1max-x1d-maxL);
-      std::uniform_real_distribution<double> distx2(-1*injH,injH-x2d);
-      std::uniform_real_distribution<double> distx3(mesh_size.x3min+maxL,mesh_size.x3max-x3d-maxL);
-      for (int n = 1; n <= NInjs; n++){
-        X1Inj.insert(X1Inj.end(), (round((distx1(gen)-mesh_size.x1min)/x1d) + 0.5)*x1d + mesh_size.x1min);
-        X2Inj.insert(X2Inj.end(), (round((distx2(gen)-mesh_size.x2min)/x2d) + 0.5)*x2d + mesh_size.x2min);
-        X3Inj.insert(X3Inj.end(), (round((distx3(gen)-mesh_size.x3min)/x3d) + 0.5)*x3d + mesh_size.x3min);
-        myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
-      }
-      myfile.close();
-    }
-  }
-  MPI_Bcast(&NInjs,1,MPI_INT,0,MPI_COMM_WORLD);
-
-  if ((NInjs > 0) && (rank != 0)){
-    X1Inj.insert(X1Inj.end(),NInjs,FLT_MAX);
-    X2Inj.insert(X2Inj.end(),NInjs,FLT_MAX);
-    X3Inj.insert(X3Inj.end(),NInjs,FLT_MAX);
-  }
-
-  MPI_Bcast(X1Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  MPI_Bcast(X2Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  MPI_Bcast(X3Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  TotalInjs += NInjs;
-  
+ 
 }
 
 
@@ -635,15 +472,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         Real dx2 = pmb->pcoord->dx2v(j);
         Real dx3 = pmb->pcoord->dx3v(k);
         Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
-
-        // GRAVITY
-        
-        Real grav = gravity(x2);
-        Real src = dt*d*grav;
-
-        cons(IM2,k,j,i) += src;
-        if (NON_BAROTROPIC_EOS) cons(IEN,k,j,i) += src*prim(IVY,k,j,i);
-
         
         
         //COOLING and HEATING
@@ -685,30 +513,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             cons(IEN,k,j,i) += net;
           }
         }
-
-        // INJECTIONS
-        for (int m = 0 ; m < NInjs; ++m) {
-          Real x10   = X1Inj.at(m);
-          Real x20   = X2Inj.at(m);
-          Real x30   = X3Inj.at(m);
-
-          Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
-          Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
-
-          if (dist <= injL) {
-            cons(IEN,k,j,i) += Esn_th/SN_Vol;
-            cons(IDN,k,j,i) += Msn/SN_Vol;
-            Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol) *(cons(IDN,k,j,i)));
-
-            if (dist > 0){
-              cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
-              cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
-              cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
-              cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
-            } 
-          }
-        }
-        
       }
     }
   }
@@ -731,135 +535,6 @@ Real MyTimeStep(MeshBlock *pmb)
   // if (Ninjs >1) {
   //   return 1e-6;
   // } else {
-    return max_dt;
+  return max_dt;
   // }
-}
-
-//----------------------------------------------------------------------------------------
-//! \fn void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco,
-//!                             AthenaArray<Real> &prim, FaceField &b, Real time, Real dt,
-//!                             int il, int iu, int jl, int ju, int kl, int ku, int ngh)
-//! \brief set vacuum outside the simulation. 
-
-void DiodeInnerX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
-  for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-        if (n==(IPR)) {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(IPR,k,jl-j,i) = pfloor;
-          }
-        } else if (n==IDN) {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(n,k,jl-j,i) = dfloor;
-          }
-        } else {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(n,k,jl-j,i) = 0.0;
-          }
-        }
-      }
-    }
-  }
-
-  // zero face-centered magnetic fields 
-  if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(jl-j),i) =  0.0;
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(jl-j),i) = 0.0;  
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(jl-j),i) =  0.0;
-        }
-      }
-    }
-  }
-
-  return;
-}
-//----------------------------------------------------------------------------------------
-//! \fn void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco,
-//!                             AthenaArray<Real> &prim, FaceField &b, Real time, Real dt,
-//!                             int il, int iu, int jl, int ju, int kl, int ku, int ngh)
-//! \brief  Vacuum conditions outside boundary
-
-void DiodeOuterX2(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
-                            FaceField &b, Real time, Real dt,
-                            int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
-  for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-        if (n==(IPR)) {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(IPR,k,ju+j,i) = pfloor;
-          }
-        } else if (n==(IDN))  {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(IDN,k,ju+j,i) = dfloor;
-          }
-        } else {
-#pragma omp simd
-          for (int i=il; i<=iu; ++i) {
-            prim(n,k,ju+j,i) = 0.0;
-          }
-        }
-      }
-    }
-  }
-
-  // zero face-centered magnetic fields
-  if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(ju+j  ),i) =  0.0;
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(ju+j+1),i) = 0.0;  
-        }
-      }
-    }
-
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(ju+j  ),i) =  0.0;
-        }
-      }
-    }
-  }
-
-  return;
 }
