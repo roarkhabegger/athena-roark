@@ -7,4 +7,4 @@ python3 configure.py \
  -hdf5 \
  -mpi \
  -h5double \
- --hdf5_path=/home/rhabegger/spack/var/spack/environments/athenaICM/.spack-env/view \
+ --hdf5_path=/home/nbroderick2/spack/var/spack/environments/athena2/.spack-env/view 

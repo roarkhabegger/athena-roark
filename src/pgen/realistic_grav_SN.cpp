@@ -159,23 +159,24 @@ Real potential_TIGRESS(Real z) {
 
 //GalPot Functions
 Real gravity_GALPOT(Real z) {
-  Real pin = -1*A*std::tanh(z_peak/B) - C*std::tanh(z_peak/D) ;
-  Real z_peak = z_peak;
+  Real z_peak = z_peak * parsec * 1000 ;
+  Real pin = -1*A*std::tanh((z_peak/l_scale)/B) - C*std::tanh((z_peak/l_scale)/D) ;
   Real g0 ; 
-  if (std::abs(z) <= -1*z_peak) g0 = -1*A*std::tanh(z/B) - C*std::tanh(z/D) ;
-  else if (z <= z_peak) g0 = pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak))), 2)) ;
-  else g0 = -1*pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak))), 2)) ;
+  if (std::abs(z) <= -1*z_peak/l_scale) g0 = -1*A*std::tanh(z/B) - C*std::tanh(z/D) ;
+  else if (z <= z_peak/l_scale) g0 = pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak/l_scale))), 2)) ;
+  else g0 = -1*pin*std::exp(E* pow((std::log(std::abs(z)/(-1*z_peak/l_scale))), 2)) ;
   return g0 ;
   //return gravity_SILCC(z);
 }
 Real potential_GALPOT(Real z) {
-  Real pin = -1*A*std::tanh(z_peak/B) - C*std::tanh(z_peak/D);
   Real rh = rh ;
-  Real rho_0 = rho_0;
+  Real rho_0 = rho_0 * (M_sun/pow(parsec,3));
+  Real z_peak = z_peak * parsec * 1000 ;
+  Real pin = -1*A*std::tanh((z_peak/l_scale)/B) - C*std::tanh((z_peak/l_scale)/D);
   Real pot ;
-  if (std::abs(z) <= -1*z_peak) pot = -A*B*std::log(std::cosh(z/B)) - C*D*std::log(std::cosh(z/D)) ;
-  else if (z <= z_peak) pot = (pin*std::exp((1/4)/E)*z_peak*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/z_peak))/(2*std::sqrt(E)))) / (2*std::sqrt(E));
-  else pot = -1*(pin*std::exp((1/4)/E)*z_peak*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/z_peak))/(2*std::sqrt(E)))) / (2*std::sqrt(E)) ;
+  if (std::abs(z) <= -1*z_peak/l_scale) pot = -A*B*std::log(std::cosh(z/B)) - C*D*std::log(std::cosh(z/D)) ;
+  else if (z <= z_peak/l_scale) pot = (pin*std::exp((1/4)/E)*(z_peak/l_scale)*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/(z_peak/l_scale)))/(2*std::sqrt(E)))) / (2*std::sqrt(E));
+  else pot = -1*(pin*std::exp((1/4)/E)*(z_peak/l_scale)*std::sqrt(PI)*std::erf((-1+2*E*std::log(z/(z_peak/l_scale)))/(2*std::sqrt(E)))) / (2*std::sqrt(E)) ;
   return pot ;
   //return potential_SILCC(z);
 }
