@@ -695,7 +695,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           } else if (T >= Tceil) {
             // Apply ceiling cooling
             // cons(IEN,k,j,i) -= d*d*dt*lambda(T);
-            cons(IEN,k,j,i) -= (T - Tceil)*d/(gm1);
+            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
           } else {
             // get basic temp prediction from operator split
             Real T_heat = Heating(x2) * d * dt + T;
@@ -774,14 +774,15 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
               cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
               cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
             } 
-            Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
-            Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
-          
-            Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
-            if (T > Tceil) {
-              cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
-            }
           }
+        }
+
+        Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
+        Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
+      
+        Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
+        if (T > Tceil) {
+          cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
         }
         
       }
