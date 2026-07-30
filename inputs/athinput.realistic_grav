@@ -71,13 +71,14 @@ B          = 100      # Second parameter - often scale height in pc
 C          = 0        # Third parameter - often Sigma_Star in Msun per pc^2
 D          = 0        # Fourth parameter - often scale height in pc
 E          = 0        # Fifth parameter - 
+R          = 8
 
-SNRate     = 0.25        # SN injections per Myr
+SNRate     = 0        # SN injections per Myr
 InjH       = 100      # +/- height where SN occur
 InjL       = 10       # box size of each SN injection
 Esn_th     = 1.0      # Injection strength in units of 1e51 erg
 Esn_mom    = 0.067
-min_dt     = 1e-4
+# min_dt     = 1e-4
 
 HeatingRate = 2e-26   #per particle heating rate in ergs/s
 
