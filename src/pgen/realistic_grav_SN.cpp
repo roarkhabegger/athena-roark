@@ -54,7 +54,7 @@ Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tigress;
 Real pres0, dens0, invbeta, angle;
 
 //Cooling Parameters
-Real HeatingRate, cool_CFL;
+Real HeatingRate;
 int Tbins;
 AthenaArray<Real> Lks, aks, Tlows, Tupps, Yks, Tmax_arr, LN_arr;
 Real Y(Real T);
@@ -94,6 +94,7 @@ const Real rho_scale = m_scale*n_scale;
 const Real e_scale = rho_scale*v_scale*v_scale;
 const Real T_scale = e_scale/(n_scale*k_B);
 const Real B_scale = 4*PI*sqrt(e_scale);
+const Real lam_scale = e_scale/(n_scale*n_scale*t_scale);
 
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
@@ -380,7 +381,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HDF5ReadRealArray("cooling.hdf5", "LN", 1, start_fileLN, count_scalar, 1, start_mem, count_scalar, LN_arr);
   
   HeatingRate = dens0 * lambda(T0/T_scale) ;//pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
-  cool_CFL = pin->GetOrAddReal("problem","cool_CFL",0.5);
+  // cool_CFL = pin->GetOrAddReal("problem","cool_CFL",0.5);
   EnrollUserExplicitSourceFunction(mySource);
 
   if (rank == 0) {
@@ -690,38 +691,67 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           Real T = p/d;
           if (T <= Tfloor) { 
             // Apply floor heating
-            cons(IEN,k,j,i) += Heating(x2) * d * dt;//(Tfloor - T)*d/(gm1);
+            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
           } else if (T >= Tceil) {
             // Apply ceiling cooling
             // cons(IEN,k,j,i) -= d*d*dt*lambda(T);
-            cons(IEN,k,j,i) -= (T - Tceil)*d/(gm1);
+            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
           } else {
-            //Find cooling and heating rates
-            Real heat_rate = Heating(x2);
-            Real cool_rate = d*lambda(T);
-            Real tnet =  cons(IEN,k,j,i) / (heat_rate - cool_rate);
-            Real net = 0.0;
-            if (cool_CFL * std::fabs(tnet) > dt ) {
-              net = (heat_rate - cool_rate)*dt*d;
-            } else {
-              Real heat = Heating(x2) * d * dt;
-              Real cool = 0.0;
-              Real tcool = pow(d*gm1 * LN / (Tmax),-1);
-              Real Tnp1 = Yinv( Y(T) + dt / tcool );
-              cool = d/(gm1) * (T - Tnp1);
-              net = heat - cool;
-              Real newT = T + net * gm1 / d;
-              if (newT < Tfloor) {
-                net = (Tfloor - T)* d / gm1;
-              } else if (newT > Tceil) {
-                // net = -1*d*d*dt*lambda(T);
-                net = (Tceil - T)* d / gm1;
-              } else {
-                // do nothing
+            // get basic temp prediction from operator split
+            Real T_heat = Heating(x2) * d * dt + T;
+            Real tcool = pow(d*gm1 * LN / (Tmax),-1);
+            Real T_cool = Yinv( Y(T) + dt / tcool );
+
+            Real T_new = T + (T_heat-T) + (T_cool-T);
+            Real sign = (Heating(x2) - d*lambda(T)) > 0 ? 1.0 : -1.0;
+
+            // check for near critical temperatures
+            int bin1 = std::floor((std::log10(T_heat*T_scale) -2)/ 0.01);
+            int bin2 = std::floor((std::log10(T_cool*T_scale) -2)/ 0.01);
+            for (int b =bin2; b <= bin1; b++) {
+              if ((b >= 0) && (b < Tbins)) {
+                Real Tcrit = std::pow(Heating(x2) /(Lks(b) * d / lam_scale ), 1.0/(aks(b))) * T_scale;
+                if ((Tcrit>=Tlows(b)) && (Tcrit<=Tupps(b)) && aks(b) > 1.0) {
+                  Real crit_sign = (Tcrit/T_scale - T) > 0 ? 1.0 : -1.0;
+                  if (sign == crit_sign) {
+                    T_new = Tcrit/T_scale;  
+                  }
+                }
               }
             }
-            cons(IEN,k,j,i) += net;
+            if (T_new < Tfloor) {
+              T_new = Tfloor;
+            } else if (T_new > Tceil) {
+              T_new = Tceil;
+            } 
+            cons(IEN,k,j,i) += (T_new - T)*d/(gm1);
           }
+            //Find cooling and heating rates
+            // Real heat_rate = Heating(x2);
+            // Real cool_rate = d*lambda(T);
+            // Real tnet =  cons(IEN,k,j,i) / (heat_rate - cool_rate);
+            // Real net = 0.0;
+            // // if (cool_CFL * std::fabs(tnet) > dt ) {
+            // //   net = (heat_rate - cool_rate)*dt*d;
+            // // } else {
+            //   Real heat = Heating(x2) * d * dt;
+            //   Real cool = 0.0;
+            //   Real tcool = pow(d*gm1 * LN / (Tmax),-1);
+            //   Real Tnp1 = Yinv( Y(T) + dt / tcool );
+            //   cool = d/(gm1) * (T - Tnp1);
+            //   net = heat - cool;
+            //   Real newT = T + net * gm1 / d;
+            //   if (newT < Tfloor) {
+            //     net = (Tfloor - T)* d / gm1;
+            //   } else if (newT > Tceil) {
+            //     // net = -1*d*d*dt*lambda(T);
+            //     net = (Tceil - T)* d / gm1;
+            //   } else {
+            //     // do nothing
+            //   }
+            // // }
+            // cons(IEN,k,j,i) += net;
+          // }
         }
 
         // INJECTIONS
@@ -745,6 +775,14 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
               cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
             } 
           }
+        }
+
+        Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
+        Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
+      
+        Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
+        if (T > Tceil) {
+          cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
         }
         
       }

@@ -356,9 +356,9 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
           Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol) *(phydro->u(IDN,k,j,i)));
 
           if ((dist > 0) ){
-            phydro->u(IM1,k,j,i) += mom0 * (x1)/dist;
-            phydro->u(IM2,k,j,i) += mom0 * (x2)/dist;
-            phydro->u(IM3,k,j,i) += mom0 * (x3)/dist;
+            phydro->u(IM1,k,j,i) += mom0 * (x1 - (x10+0.5*dx1))/dist;
+            phydro->u(IM2,k,j,i) += mom0 * (x2 - (x20+0.5*dx2))/dist;
+            phydro->u(IM3,k,j,i) += mom0 * (x3 - (x30+0.5*dx3))/dist;
             phydro->u(IEN,k,j,i) += 0.5*SQR(mom0)/(phydro->u(IDN,k,j,i));
           } 
         }
@@ -489,7 +489,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             //Find cooling and heating rates
             Real heat_rate = Heating(x2);
             Real cool_rate = d*lambda(T);
-            Real tnet =  cons(IEN,k,j,i) / (heat_rate - cool_rate);
+            Real tnet =  cons(IEN,k,j,i) * gm1 / (d*(heat_rate - cool_rate));
             Real net = 0.0;
             if (cool_CFL * std::fabs(tnet) > dt ) {
               net = (heat_rate - cool_rate)*dt*d;
