@@ -1,5 +1,5 @@
 python3 configure.py \
- --prob=realistic_grav_SN \
+ --prob=realistic_grav_SN_xyz \
  --nghost=4 \
  --eos="adiabatic" \
  --flux=lhlld \
