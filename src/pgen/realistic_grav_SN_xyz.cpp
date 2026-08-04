@@ -714,6 +714,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
                 if ((Tcrit>=Tlows(b)) && (Tcrit<=Tupps(b)) && aks(b) > 1.0) {
                   Real crit_sign = (Tcrit/T_scale - T) > 0 ? 1.0 : -1.0;
                   if (sign == crit_sign) {
+                    
                     T_new = Tcrit/T_scale;  
                   }
                 }
@@ -757,6 +758,8 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
         if (T > Tceil) {
           cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
+        } else if (T < Tfloor) {
+          cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
         }
         
   
