@@ -95,14 +95,11 @@ Real Lrand;
 // alphaks  [ 1.5    2.867 -0.65   0.5  ]
 // TEF bounds for Tmax= 10000000000.0  K
 // Yks      [1.9127510824010463 1.9120315518174356 1.911840589669069 1.8735088935932651 0.   
-// Testing on Mar 22 26. Results: Immediate departure, too much heating
 // double Tupps[4] = {8.0e+3, 1.0e+5,4.0e+7,1e+10};
 // double Tlows[4] = {2.0e+3,8.0e+3,1.0e+5,4.0e+7};
 // double Lks[4] = {1.0012e-30, 4.6240e-36, 1.7800e-18, 3.2217e-27};
 // double aks[4] = {1.5, 2.867,-0.65,0.5};
 // double Yks[5] = {1.9127510824010463 ,1.9120315518174356, 1.911840589669069 , 1.8735088935932651, 0.0};
-
-
 
 // Cooling Function parameters: 
 // Tupper   [8.e+03 1.e+05 4.e+07 1.e+08] K
@@ -112,12 +109,6 @@ Real Lrand;
 // TEF bounds for Tmax= 100000000.0  K
 // Yks      [1.1275108240104612 1.1203155181743534 1.1184058966906867 0.7350889359326482 0. ]
 //final 3
-// Mar 22 26: trying this with no Tceil check at end, but with
-// Tceil check at cooling+heating steps. Result: Failure, tons of heating 
-// Mar 23 26: add back Tceil check at end. Now trying without d dependence
-// Rapid overheating after initially steady.
-// Mar 24 26: same no d-dependence, now no Tceil check on application of heating and cooling terms
-// results: steady upward growth/rapid overheating
 double Tupps[4] = {8.0e+3, 1.0e+5, 4.0e+7, 1.0e+8};
 double Tlows[4] = {2.0e+3, 8.0e+3, 1.0e+5, 4.0e+7};
 double Lks[4] = {1.0012e-30, 4.6240e-36, 1.7800e-18, 3.2217e-27};
@@ -383,6 +374,12 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin) {
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank); //Just for print statements
+
+  // Real dx =  (pin->GetReal("mesh","x1max") -  pin->GetReal("mesh","x1min") );
+  // Real dy =  (pin->GetReal("mesh","x2max") -  pin->GetReal("mesh","x2min") );
+  // Real dz =  (pin->GetReal("mesh","x3max") -  pin->GetReal("mesh","x3min") );
+  // totalVolume = dx*dy*dz;
+
   turb_dedt = pin->GetOrAddReal("turbulence","dedt",0.0);
   
   if(CR_ENABLED){
@@ -395,6 +392,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     f_i = pin->GetOrAddReal("cr","f_i",1);
     T_f_i = pin->GetOrAddReal("cr","T_f_i",10000)/T_scale;
     dT_f_i = pin->GetOrAddReal("cr","dT_f_i",1000)/T_scale;
+    // decouple = pin->GetOrAddReal("cr","A_decouple",1);
     crLoss = pin->GetOrAddReal("problem","crLoss",0.0);
 
     if (rank == 0){
@@ -406,13 +404,25 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   }
   cooling_flag = pin->GetInteger("problem","cooling");
   heating_flag = pin->GetOrAddInteger("problem","heating",1);
+  // Real gm1 = pin->GetReal("hydro","gamma")-1.0;
   n0 = pin->GetReal("problem", "n0")/n_scale; //density
   T0 = pin->GetReal("problem", "T0")/T_scale;
   
   
   if (cooling_flag != 0) {
-
-    EnrollUserExplicitSourceFunction(mySource);
+    // EnrollUserTimeStepFunction(CoolingTimeStep);
+    if (heating_flag==2) {
+      EnrollUserExplicitSourceFunction(const_Source);
+      if (rank == 0){
+        std::cout << "Using Const Source!" << std::endl;
+      }
+    } else {
+      EnrollUserExplicitSourceFunction(mySource);
+      if (rank == 0){
+        std::cout << "Using Base Source!" << std::endl;
+      }
+    }
+    
     // constant heating rate is n^2 Lambda at n0, T0 in computational units
   }
   // turb_flag is initialzed in the Mesh constructor to 0 by default;
@@ -437,8 +447,61 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   EnrollUserHistoryOutput(4, correlation, "corr_rho_ec");
   EnrollUserHistoryOutput(5, correlation, "Lgamma_Lsun");
   EnrollUserHistoryOutput(6, correlation, "CR_Loss_Rate");
+
   
  
+  return;
+}
+
+
+void const_Source(MeshBlock *pmb, const Real time, const Real dt,
+  const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
+  const AthenaArray<Real> &bcc, AthenaArray<Real> &cons,
+  AthenaArray<Real> &cons_scalar){
+
+  Real pfloor = pmb->peos->GetPressureFloor();
+  Real dfloor = pmb->peos->GetDensityFloor();
+  Real Tfloor = Tlows[0]/T_scale;
+  Real Tceil = Tmax / T_scale;
+  double gm1 = pmb->peos->GetGamma()-1.0;
+
+  Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
+  Real T2 = invTEF(TEF(T0) + dt*t0);
+  Real const_heating = -n0*(T2-T0)/gm1;
+
+  // double totdE = 0.0;
+  // double totV = 0.0;
+  // Real turbdE =turb_dedt * dt;
+
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        double d = cons(IDN,k,j,i);
+        double p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
+
+        if ((d> dfloor) && (p> pfloor) ) {
+          double T = p/d;
+          if ((T > Tfloor) && (T < Tceil)){
+            double time0 = t_scale*gm1*d*n_scale*LN/(k_B*Tmax);
+            double newT = invTEF(TEF(T) + dt*time0);
+            double dE = d*(newT-T)/gm1;
+
+            cons(IEN,k,j,i) += dE  + (d/n0)*const_heating;
+            p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
+            T = p/d;
+          }
+          if (T >= Tceil){
+            cons(IEN,k,j,i) += d*(Tceil - T)/gm1;
+          } else if (T <= Tfloor){
+            cons(IEN,k,j,i) += d*(Tfloor - T)/gm1;
+          }
+          
+        }
+      }
+    }
+  }
+
   return;
 }
 
@@ -456,6 +519,10 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   Real Tfloor = Tlows[0]/T_scale;
   Real Tceil = Tmax / T_scale;
   double gm1 = pmb->peos->GetGamma()-1.0;
+
+  Real t0 = t_scale*gm1*n0*n_scale*LN/(k_B*Tmax);
+  Real T2 = invTEF(TEF(T0) + dt*t0);
+  Real const_heating = -n0*(T2-T0)/gm1;
 
   double totdE = 0.0;
   double totV = 0.0;
@@ -475,7 +542,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             double newT = invTEF(TEF(T) + dt*time0);
             double dE = d*(newT-T)/gm1;
             totdE += -1*dE * pmb->pcoord->GetCellVolume(k,j,i);
-            totV += pmb->pcoord->GetCellVolume(k,j,i);
+            totV += d * pmb->pcoord->GetCellVolume(k,j,i);
             // totV += pmb->pcoord->GetCellVolume(k,j,i);
             cons(IEN,k,j,i) += dE;
           }
@@ -499,6 +566,27 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
     
     Real turbdE = turb_dedt * dt;
     
+    // if (pmb->pmy_mesh->turb_flag== 3) {
+    //   turbdE =  turb_dedt * dt ;
+    // } else if (pmb->pmy_mesh->turb_flag== 2) {
+    //   turbdE = 0.0;
+    //   Real trbTime = pmb->pmy_mesh->ptrbd->tdrive;
+    //   Real trbDt = pmb->pmy_mesh->ptrbd->dtdrive;
+    //   // turbdE = turb_dedt *dt;
+    //   if ((time+dt) >= (trbTime)){
+    //     turbdE =  turb_dedt * trbDt ;
+    //   }
+    // }
+    // if (global_totdE <= turbdE) {
+    //   std::cout << "Turbulence stronger than Heating!" << std::endl;
+    // } else {
+    //   global_totdE -= turbdE;
+    // }
+
+
+    // global_totdE -= turbdE;
+
+    // Real heater = global_totdE / ;
     for (int k=pmb->ks; k<=pmb->ke; ++k) {
       for (int j=pmb->js; j<=pmb->je; ++j) {
   #pragma omp simd
@@ -508,13 +596,19 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
           if ((d> dfloor) && (p> pfloor) ) {
             double T = p/d;
-            // if ((T > Tfloor) && (T < Tceil)){
+            if ((T > Tfloor) && (T < Tceil)){
             // if ((T < Tceil) ){
-            if (T > Tfloor){
+            // if (T > Tfloor){
               if (heating_flag == 1){
 
-                cons(IEN,k,j,i) += fmax(global_totdE - turbdE,0.0)  / global_totV;
-
+                // cons(IEN,k,j,i) += d * global_totdE / global_totV;
+                // cons(IEN,k,j,i) += global_totdE / global_totV;
+                // cons(IEN,k,j,i) += d * fmax(global_totdE - turbdE,0.0)  / global_totV;
+                // cons(IEN,k,j,i) += d*(global_totdE - turbdE)  / global_totV;
+                // cons(IEN,k,j,i) += d*fmax(global_totdE - turbdE,0.0)  / global_totV;
+                // cons(IEN,k,j,i) += (global_totdE - turbdE) / global_totV;
+                cons(IEN,k,j,i) += d*fmax(global_totdE - turbdE,0.0)  / global_totV;
+                // cons(IEN,k,j,i) += (d/n0)*const_heating;
                 p = gm1*(cons(IEN,k,j,i) - 0.5*(SQR(cons(IM1,k,j,i))+SQR(cons(IM2,k,j,i))+SQR(cons(IM3,k,j,i)))/d - 0.5*(SQR(bcc(IB1,k,j,i))+SQR(bcc(IB2,k,j,i))+SQR(bcc(IB3,k,j,i))));
                 T = p/d;
               }
@@ -557,10 +651,13 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
   // const Real T0 = pin->GetReal("problem", "T0")/T_scale;
   const Real pres = n0*T0*(n_scale*k_B*T_scale/e_scale);
   const Real gm1  = peos->GetGamma() - 1.0;
-
+  // std::cout << Ntriples << std::endl;
   const Real invbeta = pin->GetOrAddReal("problem","invbeta",0.0);
-
+  // Real dBoverB= pin->GetOrAddReal("problem","delta_B",0.0);
+  
   const Real bx_0 = sqrt(2*invbeta*pres); //mean field strength
+  // const Real dB = dBoverB*bx_0;
+  // const Real b_amp = dBrat*bx_0;
   const Real invbetaCR = pin->GetOrAddReal("problem","invbetaCR",0.0);
   const Real crp = pres*invbetaCR;
 
