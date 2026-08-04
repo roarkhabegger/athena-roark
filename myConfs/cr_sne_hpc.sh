@@ -1,0 +1,13 @@
+python3 configure.py \
+ --prob=cr_supernova \
+ --nghost=4 \
+ --eos="adiabatic" \
+ --flux=lhlld \
+ -b \
+ -fft \
+ -cr \
+ -hdf5 \
+ -mpi \
+ -h5double \
+ --fftw_path=/home/rhabegger/spack_programs/linux-zen3/fftw-3.3.10-ym6rwi4bwbjppspoxxgxbqmnurn3z3sr \
+ --hdf5_path=/home/rhabegger/spack/var/spack/environments/athenaICM/.spack-env/view \
