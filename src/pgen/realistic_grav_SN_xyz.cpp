@@ -797,22 +797,22 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                             FaceField &b, Real time, Real dt,
                             int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
   for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
         if (n==(IPR)) {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(IPR,k,jl-j,i) = pfloor;
+            prim(IPR,kl-k,j,i) = pfloor;
           }
         } else if (n==IDN) {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(n,k,jl-j,i) = dfloor;
+            prim(n,kl-k,j,i) = dfloor;
           }
         } else {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(n,k,jl-j,i) = 0.0;
+            prim(n,kl-k,j,i) = 0.0;
           }
         }
       }
@@ -821,29 +821,29 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
   // zero face-centered magnetic fields 
   if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(jl-j),i) =  0.0;
+          b.x1f((kl-k),j,i) =  0.0;
         }
       }
     }
 
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(jl-j),i) = 0.0;  
+          b.x3f((kl-k),j,i) = 0.0;
         }
       }
     }
 
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju+1; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(jl-j),i) =  0.0;
+          b.x2f((kl-k),j,i) =  0.0;
         }
       }
     }
@@ -861,22 +861,22 @@ void DiodeOuterX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                             FaceField &b, Real time, Real dt,
                             int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
   for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
         if (n==(IPR)) {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(IPR,k,ju+j,i) = pfloor;
+            prim(IPR,ku+k,j,i) = pfloor;
           }
         } else if (n==(IDN))  {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(IDN,k,ju+j,i) = dfloor;
+            prim(IDN,ku+k,j,i) = dfloor;
           }
         } else {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
-            prim(n,k,ju+j,i) = 0.0;
+            prim(n,ku+k,j,i) = 0.0;
           }
         }
       }
@@ -885,29 +885,29 @@ void DiodeOuterX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
   // zero face-centered magnetic fields
   if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu+1; ++i) {
-          b.x1f(k,(ju+j  ),i) =  0.0;
+          b.x1f((ku+k),j,i) =  0.0;
         }
       }
     }
 
-    for (int k=kl; k<=ku; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
-          b.x3f(k,(ju+j+1),i) = 0.0;  
+          b.x3f((ku+k+1),j,i) = 0.0;
         }
       }
     }
 
-    for (int k=kl; k<=ku+1; ++k) {
-      for (int j=1; j<=ngh; ++j) {
+    for (int j=jl; j<=ju+1; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
-          b.x2f(k,(ju+j  ),i) =  0.0;
+          b.x2f((ku+k),j,i) =  0.0;
         }
       }
     }
