@@ -440,8 +440,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   // Real gm1 = pin->GetReal("hydro","gamma")-1.0;
   n0 = pin->GetReal("problem", "n0")/n_scale; //density
   T0 = pin->GetReal("problem", "T0")/T_scale;
-  neq = pin->GetOrAddReal("problem", "neq",n0)/n_scale; //density
-  Teq = pin->GetOrAddReal("problem", "Teq",T0)/T_scale;
+  neq = pin->GetOrAddReal("problem", "neq",n0*n_scale)/n_scale; //density
+  Teq = pin->GetOrAddReal("problem", "Teq",T0*T_scale)/T_scale;
   
   if (cooling_flag != 0) {
     // EnrollUserTimeStepFunction(CoolingTimeStep);
