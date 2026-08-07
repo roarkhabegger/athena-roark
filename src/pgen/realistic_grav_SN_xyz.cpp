@@ -751,19 +751,18 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             } 
           }
         }
-
-        Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
-        Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
-      
-        Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
-        if (T > Tceil) {
-          cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
-        } else if (T < Tfloor) {
-          cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+        if (cons(IDN,k,j,i) > dfloor) {
+          Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
+          Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
+        
+          Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
+          if (T > Tceil) {
+            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
+          } else if (T < Tfloor) {
+            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+          }
         }
-        
-  
-        
+      
       }
     }
   }
