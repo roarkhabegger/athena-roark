@@ -6,7 +6,7 @@
 # the repo. Unless a later match takes precedence,
 # these global owners will be requested for
 # review when someone opens a pull request.
-*       @jmstone @tomidakn @felker
+*       @jmstone @tomidakn
 
 # Order is important; the last matching pattern takes the most
 # precedence. When someone opens a pull request that only
@@ -24,15 +24,15 @@ src/bvals/ @tomidakn @jmstone
 src/mesh/ @tomidakn @jmstone
 src/multigrid/ @tomidakn @jmstone
 
-vis/ @jmstone
+vis/ @c-white @jmstone
 
 # dir/* syntax will not match files in subfolders
-src/eos/*gr* @jmstone
-src/eos/*sr* @jmstone
-src/pgen/gr_* @jmstone
+src/eos/*gr* @c-white @jmstone
+src/eos/*sr* @c-white @jmstone
+src/pgen/gr_* @c-white @jmstone
 
 # Any file in any coordinates/ directory throughout repo
-coordinates/ @tomidakn @jmstone
+coordinates/ @c-white @tomidakn @jmstone
 
 # Any file in /tst/regression/ in root of repo
-/tst/regression/ @felker @jmstone
+/tst/regression/ @c-white @felker @jmstone
