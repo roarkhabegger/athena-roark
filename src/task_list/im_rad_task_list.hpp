@@ -51,8 +51,6 @@ class IMRadTaskList {
   TaskListStatus DoAllAvailableTasks(MeshBlock *pmb, TaskStates &ts);
   void DoTaskListOneStage(Real wght);
   TaskStatus PhysicalBoundary(MeshBlock *pmb);
-  // set physical boundary for radiation only
-  TaskStatus RadPhysicalBoundary(MeshBlock *pmb);
   TaskStatus ProlongateBoundary(MeshBlock *pmb);
 
  protected:

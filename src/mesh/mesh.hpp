@@ -17,7 +17,6 @@
 #include <cstdint>     // int64_t
 #include <functional>  // reference_wrapper
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 // Athena++ headers
@@ -84,7 +83,7 @@ class MeshBlock {
   friend class ChemRadIntegrator;
   friend class IMRadTaskList;
 #ifdef HDF5OUTPUT
-  template <typename T> friend class ATHDF5Output;
+  friend class ATHDF5Output;
 #endif
 
  public:
@@ -233,7 +232,7 @@ class Mesh {
   friend class OrbitalAdvection;
   friend class Particles;
 #ifdef HDF5OUTPUT
-  template <typename T> friend class ATHDF5Output;
+  friend class ATHDF5Output;
 #endif
 
  public:
@@ -341,12 +340,6 @@ class Mesh {
   bool lb_flag_, lb_automatic_, lb_manual_;
   double lb_tolerance_;
   int lb_interval_;
-  int bssame, bsf2c, bsc2f;
-
-  // for AMR face field correction
-  std::unordered_map<LogicalLocation, int, LogicalLocationHash> *locmap_;
-  std::vector<int> refined_;
-  std::vector<FaceFieldCorrection> ffc_send_, ffc_recv_;
 
   // functions
   MeshGenFunc MeshGenerator_[3];
@@ -399,14 +392,7 @@ class Mesh {
   // step 8: receive
   void FinishRecvSameLevel(MeshBlock *pb, Real *recvbuf);
   void FinishRecvFineToCoarseAMR(MeshBlock *pb, Real *recvbuf, LogicalLocation &lloc);
-  void ReceiveCoarseToFineAMR(MeshBlock *pb, Real *recvbuf);
-  void ProlongateMeshBlock(MeshBlock *pb);
-
-  // Face field correction
-  void PrepareAndSendFaceFieldCorrection(LogicalLocation *newloc,
-                              int *ranklist, int *newrank, int *nslist, int nbtold);
-  void ReceiveAndSetFaceFieldCorrection(int *newrank);
-  int CreateFaceFieldCorrectionMPITag(int lid, int face);
+  void FinishRecvCoarseToFineAMR(MeshBlock *pb, Real *recvbuf);
 
   //! defined in either the prob file or default_pgen.cpp in ../pgen/
   void InitUserMeshData(ParameterInput *pin);

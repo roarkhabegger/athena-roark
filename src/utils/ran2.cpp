@@ -8,8 +8,8 @@
 // C headers
 
 // C++ headers
+#include <cfloat>
 #include <iostream>
-#include <limits>
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -37,8 +37,7 @@
 #define IR2 3791
 #define NTAB 32
 #define NDIV (1+IMM1/NTAB)
-// #define RNMX (1.0-DBL_EPSILON)
-constexpr double RNMX = 1.0 - std::numeric_limits<double>::epsilon();
+#define RNMX (1.0-DBL_EPSILON)
 
 double ran2(std::int64_t *idum) {
   int j;
