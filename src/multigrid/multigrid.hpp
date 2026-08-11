@@ -40,24 +40,6 @@ enum class MGNormType {max, l1, l2};
 
 constexpr int minth_ = 8;
 
-//! \fn inline std::int64_t rotl(std::int64_t i, int s)
-//  \brief left bit rotation function for 64bit integers (unsafe if s > 64)
-
-inline std::int64_t rotl(std::int64_t i, int s) {
-  return (i << s) | (i >> (64 - s));
-}
-
-
-//! \struct LogicalLocationHash
-//  \brief Hash function object for LogicalLocation
-
-struct LogicalLocationHash {
- public:
-  std::size_t operator()(const LogicalLocation &l) const {
-    return static_cast<std::size_t>(l.lx1^rotl(l.lx2,21)^rotl(l.lx3,42));
-  }
-};
-
 
 //! \class MGCoordinates
 //  \brief Minimum set of coordinate arrays for Multigrid
@@ -76,7 +58,7 @@ class MGCoordinates {
 
 class MGOctet {
  public:
-  void Allocate(int nvar, int ncoct, int nccoct, int ncoeff, int nmatrix);
+  MGOctet(int nvar, int ncoct, int nccoct, int ncoeff, int nmatrix);
   LogicalLocation loc;
   bool fleaf;
   AthenaArray<Real> u, def, src, uold, coeff, matrix;
@@ -283,7 +265,7 @@ class MultigridDriver {
   int fprolongation_;
 
   // for mesh refinement
-  std::vector<MGOctet> *octets_;
+  std::vector<MGOctet*> *octets_;
   std::unordered_map<LogicalLocation, int, LogicalLocationHash> *octetmap_;
   std::vector<bool> *octetbflag_;
   int *noctets_, *pmaxnoct_;
