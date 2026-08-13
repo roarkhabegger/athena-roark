@@ -511,6 +511,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         phydro->u(IDN, k, j, i) = dens;
         phydro->u(IM1, k, j, i) = 0.0;
         phydro->u(IM2, k, j, i) = -1*qshear*Omega0*x1*dens;
+        //phydro->u(IM2, k, j, i) = 0.0;
         phydro->u(IM3, k, j, i) = 0.0;
         //energy
         if (NON_BAROTROPIC_EOS) {
