@@ -449,10 +449,18 @@ void HistoryOutput::WriteOutputFile(Mesh *pm, ParameterInput *pin, bool flag) {
     // write history variables
     std::fprintf(pfile, output_params.data_format.c_str(), pm->time);
     std::fprintf(pfile, output_params.data_format.c_str(), pm->dt);
-    for (int n=0; n<nhistory_output; ++n)
+    bool nan_flag = false;
+    for (int n=0; n<nhistory_output; ++n) {
       std::fprintf(pfile, output_params.data_format.c_str(), hst_data[n]);
+      if (std::isnan(hst_data[n])) nan_flag = true;
+    }
     std::fprintf(pfile,"\n"); // terminate line
     std::fclose(pfile);
+    if (nan_flag) {
+      msg << "### FATAL ERROR in function [OutputType::HistoryFile]" << std::endl
+          << "NaN detected in history output file '" << fname << "'";
+      ATHENA_ERROR(msg);
+    }
   }
 
   // increment counters, clean up

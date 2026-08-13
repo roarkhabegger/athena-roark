@@ -20,11 +20,16 @@ dt          = 1.0       # time increment between outputs
 file_type   = rst         #Restart file
 dt          = 20.0     
 
+<output4>
+file_type   = hdf5
+variable    = user_out_var
+dt          = 1.0
+
 <time>                    # Time has units of 9.77792222e-01 Myr
 cfl_number   = 0.2       # The Courant, Friedrichs, & Lewy (CFL) Number
 nlim         = -1          # cycle limit
-tlim         = 5e2        # time limit
-integrator   = rk4        # time integration algorithm
+tlim         = 100        # time limit
+integrator   = rk3        # time integration algorithm
 xorder       = 2          # order of spatial reconstruction
 ncycle_out   =  1        # interval for stdout summary info
 
@@ -32,31 +37,37 @@ ncycle_out   =  1        # interval for stdout summary info
 nx1         = 100        # Number of zones in X1-direction
 x1min       = -250.0       # minimum value of X1
 x1max       =  250.0       # maximum value of X1 (unit: pc)
-ix1_bc      = periodic    # inner-X1 boundary flag
-ox1_bc      = periodic    # outer-X1 boundary flag
+ix1_bc      = shear_periodic    # inner-X1 boundary flag
+ox1_bc      = shear_periodic    # outer-X1 boundary flag
 
-nx2         = 480        # Number of zones in X2-direction
-x2min       = -1200.0       # minimum value of X2
-x2max       =  1200.0       # maximum value of X2 (unit: pc)
-ix2_bc      = user   # inner-X2 boundary flag
-ox2_bc      = user   # outer-X2 boundary flag
+nx2         = 100        # Number of zones in X2-direction
+x2min       = -250.0       # minimum value of X2
+x2max       =  250.0       # maximum value of X2 (unit: pc)
+ix2_bc      = periodic   # inner-X2 boundary flag
+ox2_bc      = periodic   # outer-X2 boundary flag
 
-nx3         = 100         # Number of zones in X3-direction
-x3min       = -250.0       # minimum value of X3
-x3max       =  250.0       # maximum value of X3 (unit: pc)
-ix3_bc      = periodic    # inner-X3 boundary flag
-ox3_bc      = periodic    # outer-X3 boundary flag
+nx3         = 480         # Number of zones in X3-direction
+x3min       = -1200.0       # minimum value of X3
+x3max       =  1200.0       # maximum value of X3 (unit: pc)
+ix3_bc      = outflow    # inner-X3 boundary flag
+ox3_bc      = outflow    # outer-X3 boundary flag
 
 
 <meshblock>
 nx1        = 25
-nx2        = 30
-nx3        = 25
+nx2        = 25
+nx3        = 30
 
 <hydro>
 gamma        = 1.66666666666667    # gamma = C_p/C_v
-pfloor       = 1e-8
-dfloor       = 1e-8
+pfloor       = 1e-7
+dfloor       = 1e-6
+
+<orbital_advection>
+OAorder      = 0
+Omega0       = 0.03
+qshear       = 1.0
+shboxcoord   = 1 
 
 
 <problem>
@@ -71,14 +82,15 @@ B          = 100      # Second parameter - often scale height in pc
 C          = 0        # Third parameter - often Sigma_Star in Msun per pc^2
 D          = 0        # Fourth parameter - often scale height in pc
 E          = 0        # Fifth parameter - 
-R          = 8
+R          = 8 
 
-SNRate     = 0        # SN injections per Myr
+SNRate     = 10.0        # SN injections per Myr
 InjH       = 100      # +/- height where SN occur
-InjL       = 10       # box size of each SN injection
-Esn_th     = 1.0      # Injection strength in units of 1e51 erg
-Esn_mom    = 0.067
-# min_dt     = 1e-4
+InjL       = 4       # box size of each SN injection
+Esn_th     = 0.8      # Injection strength in units of 1e51 erg
+Esn_mom    = 0.3
+Msn        = 1.0
+max_dt     = 1e-3
 
-HeatingRate = 2e-26   #per particle heating rate in ergs/s
+#HeatingRate = 2e-26   #per particle heating rate in ergs/s
 

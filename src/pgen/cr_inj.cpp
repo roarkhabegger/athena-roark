@@ -308,7 +308,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         phydro->u(IM3, k, j, i) = 0.0;
         //energy
         if (NON_BAROTROPIC_EOS) {
-            phydro->u(IEN, k, j, i) = pressure/gm1;
+          phydro->u(IEN, k, j, i) = pressure/gm1;
         }
         if (uniformInj==1) {
           Real x1 = pcoord->x1v(i);
