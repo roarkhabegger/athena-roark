@@ -150,7 +150,7 @@ Real gravity_TIGRESS(Real z) {
 Real potential_TIGRESS(Real z) {
   Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
   Real zstar = B * parsec;
-  Real R = E * 1000 * parsec;
+  Real R = R * 1000 ;
   Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
   Real rhodm = 2*PI*G* rho_tigress ;
   return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
