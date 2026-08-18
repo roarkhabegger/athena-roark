@@ -40,6 +40,7 @@
 #include "../mesh/mesh.hpp"
 #include "../parameter_input.hpp"
 #include "../inputs/hdf5_reader.hpp"
+#include "../scalars/scalars.hpp"
 
 
 //======================================================================================
@@ -54,7 +55,7 @@ Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tigress;
 Real pres0, dens0, invbeta, angle;
 
 //Cooling Parameters
-Real HeatingRate, cool_CFL;
+Real HeatingRate, HeatingMin;
 int Tbins;
 AthenaArray<Real> Lks, aks, Tlows, Tupps, Yks, Tmax_arr, LN_arr;
 Real Y(Real T);
@@ -279,7 +280,8 @@ Real Yinv(Real y) {
 }
 
 Real Heating(Real z){
-  return HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta)));
+  Real pos = HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta))) ;
+  return std::max(pos, HeatingMin);
 }
 
 void Mesh::InitUserMeshData(ParameterInput *pin) {
@@ -379,9 +381,10 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HDF5ReadRealArray("cooling.hdf5", "Tupps", 1, start_mem, count_memT, 1, start_mem, count_memT, Tupps);
   HDF5ReadRealArray("cooling.hdf5", "Tmax", 1, start_mem, count_scalar, 1, start_mem, count_scalar, Tmax_arr);
   HDF5ReadRealArray("cooling.hdf5", "LN", 1, start_fileLN, count_scalar, 1, start_mem, count_scalar, LN_arr);
-  
+  Real MinFactor = pin->GetOrAddReal("problem","HeatingMinFactor",1e-2);
   HeatingRate = dens0 * lambda(T0/T_scale) ;//pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
-  cool_CFL = pin->GetOrAddReal("problem","cool_CFL",0.5);
+  HeatingMin = dens0*MinFactor * lambda(T0/T_scale) ;
+  // cool_CFL = pin->GetOrAddReal("problem","cool_CFL",0.5);
   EnrollUserExplicitSourceFunction(mySource);
 
   if (rank == 0) {
@@ -455,7 +458,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 {
-  AllocateUserOutputVariables(2);
+  // AllocateUserOutputVariables(2);
   return;
 }
 
@@ -463,15 +466,15 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 
 void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin)
 {
-  for(int k=ks; k<=ke; k++) {
-    for(int j=js; j<=je; j++) {
-      for(int i=is; i<=ie; i++) {
-        Real z = pcoord->x3v(k);
-        user_out_var(0,k,j,i) = potential(z);
-        user_out_var(1,k,j,i) = gravity(z);
-      }
-    }
-  }
+  // for(int k=ks; k<=ke; k++) {
+  //   for(int j=js; j<=je; j++) {
+  //     for(int i=is; i<=ie; i++) {
+  //       Real z = pcoord->x3v(k);
+  //       user_out_var(0,k,j,i) = potential(z);
+  //       user_out_var(1,k,j,i) = gravity(z);
+  //     }
+  //   }
+  // }
 }
 
 
@@ -515,6 +518,11 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         //energy
         if (NON_BAROTROPIC_EOS) {
             phydro->u(IEN, k, j, i) = pres/gm1;
+        }
+        if (NSCALARS > 0) {
+          for (int n=0; n<NSCALARS; ++n) {
+            pscalars->s(n,k,j,i) = 0.0;
+          }
         }
       }
     }
@@ -684,6 +692,24 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
         cons(IM3,k,j,i) += src;
         if (NON_BAROTROPIC_EOS) cons(IEN,k,j,i) += src*prim(IVZ,k,j,i);
+        
+        //Scalar Dye Injection
+        // Note, conservative s = cons(d) * c and primitive r = c. Primitive ranges from 0-1
+        
+        if (NSCALARS > 0) {
+          Real dvx_dx =  (prim(IVX,k,j,i+1) - prim(IVX,k,j,i-1)) / (2.0*dx1);
+          Real dvy_dy =  (prim(IVY,k,j+1,i) - prim(IVY,k,j-1,i)) / (2.0*dx2);
+          Real dvz_dz =  (prim(IVZ,k+1,j,i) - prim(IVZ,k-1,j,i)) / (2.0*dx3);
+          Real div_v = dvx_dx + dvy_dy + dvz_dz;
+          Real G_code = G / (rho_scale/(t_scale*t_scale));
+          Real dens_thresh = (8.86/M_PI) * (p/d) / (G_code *dx1*dx1);
+          Real max_neighbor = std::max({prim(IDN,k,j,i+1), prim(IDN,k,j,i-1), prim(IDN,k,j+1,i), prim(IDN,k,j-1,i), prim(IDN,k+1,j,i), prim(IDN,k-1,j,i)});
+          if ((div_v < 0) && (d > dens_thresh) && (d>1.1*max_neighbor)) {
+            for (int n=0; n<NSCALARS; ++n) {
+              cons_scalar(n,k,j,i) += d * dt* div_v ;
+            }
+          }
+        }
 
         //COOLING and HEATING
         if ((d> dfloor) && (p> pfloor) ) {
@@ -751,19 +777,20 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             } 
           }
         }
-
-        Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
-        Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
-      
-        Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
-        if (T > Tceil) {
-          cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
-        } else if (T < Tfloor) {
-          cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+        if (cons(IDN,k,j,i) > dfloor) {
+          Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
+          Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
+        
+          Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
+          if (T > Tceil) {
+            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
+          } else if (T < Tfloor) {
+            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
+          }
         }
-        
-  
-        
+
+
+      
       }
     }
   }
