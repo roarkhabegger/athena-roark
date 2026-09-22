@@ -23,6 +23,18 @@ injL = 4
 SF_rate = 10**(-2.7) * u.Msun / u.yr / u.kpc**2 
 Msun_per_SN = 100  # Number of supernovae per solar mass of star formation
 
+##### From Elia et al 2022 Milky Way SFR from Herschel
+##### Just estimates based on graph
+# R [kpc]  log10(SFR [Msun/yr/kpc^2]) +/- 0.125 error
+# 2     -2.5 
+# 4     -2.1
+# 6     -2.0
+# 8     -2.5
+# 10    -3.0
+# 12    -3.7
+# 14    -4.0
+
+
 ##### After here is all defined by above.
 
 SN_rate = SF_rate* (x1max - x1min) * (x2max-x2min) *u.pc**2  / (Msun_per_SN * u.M_sun) 
