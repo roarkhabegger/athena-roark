@@ -399,7 +399,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HDF5ReadRealArray("cooling.hdf5", "aks", 2, start_file, count_fileT, 1, start_mem, count_memT, aks);
   HDF5ReadRealArray("cooling.hdf5", "Tlows", 1, start_mem, count_memT, 1, start_mem, count_memT, Tlows);
   HDF5ReadRealArray("cooling.hdf5", "Tupps", 1, start_mem, count_memT, 1, start_mem, count_memT, Tupps);
-  HDF5ReadRealArray("cooling.hdf5", "Tmax", 1, start_mem, count_scalar, 1, start_mem, count_scalar, Tmax_arr);
+  Tmax_arr(0) = HDF5ReadRealScalar("cooling.hdf5", "Tmax");
   HDF5ReadRealArray("cooling.hdf5", "LN", 1, start_fileLN, count_scalar, 1, start_mem, count_scalar, LN_arr);
   Real MinFactor = pin->GetOrAddReal("problem","HeatingMinFactor",1e-2);
   HeatingRate = dens0 * lambda(T0/T_scale) ;//pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
@@ -478,7 +478,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 {
-  // AllocateUserOutputVariables(2);
+  AllocateUserOutputVariables(2);
   return;
 }
 
@@ -499,14 +499,6 @@ void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin)
 
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
-    std::ofstream myfile;
-    myfile.open("injections.csv",std::ios::out | std::ios::app);
-    myfile << "Cell,X1,X2,X3,time\n";
-    myfile.close();
-  }
   Mesh *pm = pmy_mesh; 
   Real myGamma = pin->GetReal("hydro","gamma");
   

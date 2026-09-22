@@ -137,6 +137,38 @@ void HDF5ReadRealArray(const char *filename, const char *dataset_name, int rank_
   return;
 }
 
+//----------------------------------------------------------------------------------------
+//! \fn Real HDF5ReadRealScalar(const char *filename, const char *dataset_name)
+//! \brief Read a scalar dataset from an HDF5 file.
+
+Real HDF5ReadRealScalar(const char *filename, const char *dataset_name) {
+  hid_t file = H5Fopen(filename, H5F_ACC_RDONLY, H5P_DEFAULT);
+  if (file < 0) {
+    std::stringstream msg;
+    msg << "### FATAL ERROR\nCould not open " << filename << std::endl;
+    ATHENA_ERROR(msg);
+  }
+  hid_t dataset = H5Dopen(file, dataset_name, H5P_DEFAULT);
+  if (dataset < 0) {
+    H5Fclose(file);
+    std::stringstream msg;
+    msg << "### FATAL ERROR\nCould not open dataset " << dataset_name
+        << " in " << filename << std::endl;
+    ATHENA_ERROR(msg);
+  }
+  Real value;
+  herr_t status = H5Dread(dataset, H5T_REAL, H5S_ALL, H5S_ALL, H5P_DEFAULT, &value);
+  H5Dclose(dataset);
+  H5Fclose(file);
+  if (status < 0) {
+    std::stringstream msg;
+    msg << "### FATAL ERROR\nCould not read dataset " << dataset_name
+        << " from " << filename << std::endl;
+    ATHENA_ERROR(msg);
+  }
+  return value;
+}
+
 
 //----------------------------------------------------------------------------------------
 //! \fn void HDF5TableLoader(const char *filename, InterpTable2D* ptable, const int nvar,
