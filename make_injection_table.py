@@ -24,14 +24,15 @@ SF_rate = 10**(-2.7) * u.Msun / u.yr / u.kpc**2
 Msun_per_SN = 100  # Number of supernovae per solar mass of star formation
 
 ##### From Elia et al 2022 Milky Way SFR from Herschel
-##### Just estimates based on graph
-# R [kpc]  log10(SFR [Msun/yr/kpc^2]) +/- 0.125 error
-# 2     -2.5 
-# 4     -2.1
+##### Just estimates based on digitized graph 
+##### Averages nearby bins from table at bottom
+# R [kpc]  log10(SFR [Msun/yr/kpc^2]) +/- 0.2 error
+# 2     -2.6
+# 4     -2.0
 # 6     -2.0
 # 8     -2.5
-# 10    -3.0
-# 12    -3.7
+# 10    -2.9
+# 12    -3.6
 # 14    -4.0
 
 
@@ -56,3 +57,41 @@ x3pos = (np.floor((np.random.uniform(*x3_lims, N_injs) - x3min) / dx3 + 0.5) + 0
 injection_table = np.vstack((injTime, x1pos, x2pos, x3pos)).T
 
 np.savetxt("injection_table.txt", injection_table, header="Time[Myr] x1[pc] x2[pc] x3[pc]", fmt="%0.6f")
+
+
+"""
+Raw Digitizer data from Elia 2022
+x, y
+0.25, -1.391
+0.75, -2.105
+1.25, -2.581
+1.75, -2.558
+2.25, -2.673
+2.75, -2.404
+3.25, -2.320
+3.75, -2.120
+4.25, -1.905
+4.75, -1.867
+5.25, -2.012
+5.75, -2.074
+6.25, -2.020
+6.75, -2.243
+7.25, -2.473
+7.75, -2.535
+8.25, -2.535
+8.75, -2.627
+9.25, -2.818
+9.75, -2.765
+10.25, -3.110
+10.75, -3.325
+11.25, -3.547
+11.75, -3.662
+12.25, -3.632
+12.75, -3.900
+13.25, -3.724
+13.75, -4.000
+14.25, -3.954
+14.75, -4.583
+15.25, -4.483
+15.75, -4.790
+"""
