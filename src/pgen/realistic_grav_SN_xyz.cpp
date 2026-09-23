@@ -142,19 +142,19 @@ Real potential_SILCC(Real z) {
 //TIGRESS FUNCTIONS
 Real gravity_TIGRESS(Real z) {
   Real g0 = 2*PI*G;
-  //Not sure about if scaling stuff is correct
+  Real R_0 = R * 1000 * l_scale;
   Real zstar = B * parsec ;
   Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
+  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R_0),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
   //return gravity_SILCC(z);
 }
 Real potential_TIGRESS(Real z) {
   Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
   Real zstar = B * parsec;
-  Real R = R * 1000 ;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  Real rhodm = 2*PI*G* rho_tigress ;
-  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
+  Real R_0 = R * 1000 *l_scale;
+  Real rho_tig = rho_tigress * (M_sun/pow(l_scale,3));
+  Real rhodm = 2*PI*G* rho_tig ;
+  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R_0/l_scale,2)) * std::log(1 + pow(((z*l_scale)/(R_0*l_scale)),2)) / (l_scale / pow(t_scale,2));
   //return potential_SILCC(z);
 }
 
@@ -458,7 +458,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 {
-  // AllocateUserOutputVariables(2);
+  AllocateUserOutputVariables(2);
   return;
 }
 
@@ -466,15 +466,15 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 
 void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin)
 {
-  // for(int k=ks; k<=ke; k++) {
-  //   for(int j=js; j<=je; j++) {
-  //     for(int i=is; i<=ie; i++) {
-  //       Real z = pcoord->x3v(k);
-  //       user_out_var(0,k,j,i) = potential(z);
-  //       user_out_var(1,k,j,i) = gravity(z);
-  //     }
-  //   }
-  // }
+  for(int k=ks; k<=ke; k++) {
+    for(int j=js; j<=je; j++) {
+      for(int i=is; i<=ie; i++) {
+        Real z = pcoord->x3v(k);
+        user_out_var(0,k,j,i) = potential(z);
+        user_out_var(1,k,j,i) = gravity(z);
+      }
+    }
+  }
 }
 
 
