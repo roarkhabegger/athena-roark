@@ -30,6 +30,8 @@ void HDF5ReadRealArray(const char *filename, const char *dataset_name, int rank_
                        AthenaArray<Real> &array,
                        bool collective=false, bool noop=false);
 
+Real HDF5ReadRealScalar(const char *filename, const char *dataset_name);
+
 void HDF5TableLoader(const char *filename, InterpTable2D* ptable, const int nvar,
                      const char **var_names,
                      const char *x2lim_name=NULL,
