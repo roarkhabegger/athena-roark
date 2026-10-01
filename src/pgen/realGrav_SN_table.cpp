@@ -22,10 +22,8 @@
 #include <sstream>    // stringstream
 #include <stdexcept>  // runtime_error
 #include <string>     // c_str()
-#include <random>     // distributions
 #include <cfloat>      // FLT_MAX
 #include <vector> 
-#include <chrono>
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -66,12 +64,12 @@ Real invY(Real T);
 std::vector<double> X1Inj = {};
 std::vector<double> X2Inj = {};
 std::vector<double> X3Inj = {};
-unsigned seed_inj;
-std::default_random_engine gen;
+std::vector<double> TableX1Inj = {};
+std::vector<double> TableX2Inj = {};
+std::vector<double> TableX3Inj = {};
+std::vector<double> InjTimes = {};
+std::size_t NextInj = 0;
 int NInjs = 0;
-int TotalInjs = 0;
-double SNRate = 0.0;
-double injH = 100;
 double Esn_th = 0.0;
 double Esn_mom = 0.0;
 double Msn = 0.0;
@@ -287,16 +285,12 @@ Real Heating(Real z){
 void Mesh::InitUserMeshData(ParameterInput *pin) {
   int rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  seed_inj = pin->GetOrAddInteger("problem","seed_inj",0);
   if (rank == 0){
     std::cout << "Temp Scale = " << T_scale << std::endl;
     std::cout << "v Scale    = " << v_scale << std::endl;
     std::cout << "e Scale    = " << e_scale << std::endl;
     std::cout << "B Scale    = " << B_scale << std::endl;
     std::cout << "multilevel = " << multilevel << std::endl;
-    unsigned seed1 = std::chrono::system_clock::now().time_since_epoch().count();
-    if (seed_inj != 0 ) seed1 = seed_inj;
-    gen.seed(seed1);
   }
 
   //Load in parameters
@@ -344,8 +338,6 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   dfloor = pin->GetReal("hydro","dfloor");
 
   max_dt = pin->GetOrAddReal("problem","max_dt",FLT_MAX);
-  SNRate = pin->GetReal("problem","SNRate");
-  injH = pin->GetOrAddReal("problem","InjH",100); 
 
   Real dx = (pin->GetReal("mesh","x1max") - pin->GetReal("mesh","x1min"))/(pin->GetInteger("mesh","nx1"));
   injL = pin->GetReal("problem","InjL") * dx;
@@ -354,6 +346,34 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.2) * 1.0e51/(e_scale*pow(l_scale,3));
   Msn = pin->GetOrAddReal("problem","Msn",1.0) * M_sun/(rho_scale*pow(l_scale,3));
   EnrollUserTimeStepFunction(MyTimeStep);
+
+  std::string injection_table =
+      pin->GetOrAddString("problem", "InjectionTable", "injection_table.txt");
+  std::ifstream injection_file(injection_table);
+  if (!injection_file.is_open()) {
+    throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Could not open " + injection_table);
+  }
+  std::string line;
+  double injection_time, injection_x1, injection_x2, injection_x3;
+  while (std::getline(injection_file, line)) {
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    std::stringstream row(line);
+    if (!(row >> injection_time >> injection_x1 >> injection_x2 >> injection_x3)) {
+      throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Invalid row in " + injection_table);
+    }
+    InjTimes.push_back(injection_time);
+    TableX1Inj.push_back(injection_x1 * (parsec / l_scale));
+    TableX2Inj.push_back(injection_x2 * (parsec / l_scale));
+    TableX3Inj.push_back(injection_x3 * (parsec / l_scale));
+  }
+  injection_file.close();
+  if (InjTimes.size() != TableX1Inj.size() ||
+      InjTimes.size() != TableX2Inj.size() ||
+      InjTimes.size() != TableX3Inj.size()) {
+    throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Injection table dimensions do not match");
+  }
 
   
   Tbins = 600;
@@ -379,7 +399,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   HDF5ReadRealArray("cooling.hdf5", "aks", 2, start_file, count_fileT, 1, start_mem, count_memT, aks);
   HDF5ReadRealArray("cooling.hdf5", "Tlows", 1, start_mem, count_memT, 1, start_mem, count_memT, Tlows);
   HDF5ReadRealArray("cooling.hdf5", "Tupps", 1, start_mem, count_memT, 1, start_mem, count_memT, Tupps);
-  HDF5ReadRealArray("cooling.hdf5", "Tmax", 1, start_mem, count_scalar, 1, start_mem, count_scalar, Tmax_arr);
+  Tmax_arr(0) = HDF5ReadRealScalar("cooling.hdf5", "Tmax");
   HDF5ReadRealArray("cooling.hdf5", "LN", 1, start_fileLN, count_scalar, 1, start_mem, count_scalar, LN_arr);
   Real MinFactor = pin->GetOrAddReal("problem","HeatingMinFactor",1e-2);
   HeatingRate = dens0 * lambda(T0/T_scale) ;//pin->GetOrAddReal("problem","HeatingRate",2e-26)/(e_scale/t_scale);
@@ -458,7 +478,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
 
 void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 {
-  // AllocateUserOutputVariables(2);
+  AllocateUserOutputVariables(2);
   return;
 }
 
@@ -466,27 +486,19 @@ void MeshBlock::InitUserMeshBlockData(ParameterInput *pin)
 
 void MeshBlock::UserWorkBeforeOutput(ParameterInput *pin)
 {
-  // for(int k=ks; k<=ke; k++) {
-  //   for(int j=js; j<=je; j++) {
-  //     for(int i=is; i<=ie; i++) {
-  //       Real z = pcoord->x3v(k);
-  //       user_out_var(0,k,j,i) = potential(z);
-  //       user_out_var(1,k,j,i) = gravity(z);
-  //     }
-  //   }
-  // }
+  for(int k=ks; k<=ke; k++) {
+    for(int j=js; j<=je; j++) {
+      for(int i=is; i<=ie; i++) {
+        Real z = pcoord->x3v(k);
+        user_out_var(0,k,j,i) = potential(z);
+        user_out_var(1,k,j,i) = gravity(z);
+      }
+    }
+  }
 }
 
 
 void MeshBlock::ProblemGenerator(ParameterInput *pin) {
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
-    std::ofstream myfile;
-    myfile.open("injections.csv",std::ios::out | std::ios::app);
-    myfile << "Cell,X1,X2,X3,time\n";
-    myfile.close();
-  }
   Mesh *pm = pmy_mesh; 
   Real myGamma = pin->GetReal("hydro","gamma");
   
@@ -597,59 +609,30 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
 
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
-  int rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
-    std::cout << "Total Number of Injections = " << TotalInjs << std::endl;
-  }
 }
 
 
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkInLoop(void)
 {
-  Real maxL = injL;
-  int size, rank;
-  MPI_Comm_size(MPI_COMM_WORLD, &size);
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   X1Inj.clear();
   X2Inj.clear();
   X3Inj.clear();
   NInjs = 0;
-  if ((dt < FLT_MAX) && (time > 0.0)) {
-    if (rank == 0) {
-      std::ofstream myfile;
-      myfile.open("injections.csv",std::ios::out | std::ios::app);
-      std::poisson_distribution<int> distN(SNRate*dt);
-      NInjs = distN(gen);
-      Real x1d = (mesh_size.x1max - mesh_size.x1min)/float(mesh_size.nx1);
-      Real x2d = (mesh_size.x2max - mesh_size.x2min)/float(mesh_size.nx2);
-      Real x3d = (mesh_size.x3max - mesh_size.x3min)/float(mesh_size.nx3);
-      std::uniform_real_distribution<double> distx1(mesh_size.x1min+maxL,mesh_size.x1max-x1d-maxL);
-      std::uniform_real_distribution<double> distx3(-1*injH,injH-x3d);
-      std::uniform_real_distribution<double> distx2(mesh_size.x2min+maxL,mesh_size.x2max-x2d-maxL);
-      for (int n = 1; n <= NInjs; n++){
-        X1Inj.insert(X1Inj.end(), (round((distx1(gen)-mesh_size.x1min)/x1d) + 0.5)*x1d + mesh_size.x1min);
-        X2Inj.insert(X2Inj.end(), (round((distx2(gen)-mesh_size.x2min)/x2d) + 0.5)*x2d + mesh_size.x2min);
-        X3Inj.insert(X3Inj.end(), (round((distx3(gen)-mesh_size.x3min)/x3d) + 0.5)*x3d + mesh_size.x3min);
-        myfile <<  0 << ","<< X1Inj[n-1] << "," <<  X2Inj[n-1] << "," <<  X3Inj[n-1] << "," << time << "\n";
-      }
-      myfile.close();
+  if (dt >= FLT_MAX) {
+    return;
+  }
+
+  while (NextInj < InjTimes.size() && InjTimes[NextInj] <= time + dt) {
+    if (InjTimes[NextInj] >= time) {
+      X1Inj.push_back(TableX1Inj[NextInj]);
+      X2Inj.push_back(TableX2Inj[NextInj]);
+      X3Inj.push_back(TableX3Inj[NextInj]);
     }
-  }
-  MPI_Bcast(&NInjs,1,MPI_INT,0,MPI_COMM_WORLD);
-
-  if ((NInjs > 0) && (rank != 0)){
-    X1Inj.insert(X1Inj.end(),NInjs,FLT_MAX);
-    X2Inj.insert(X2Inj.end(),NInjs,FLT_MAX);
-    X3Inj.insert(X3Inj.end(),NInjs,FLT_MAX);
+    ++NextInj;
   }
 
-  MPI_Bcast(X1Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  MPI_Bcast(X2Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  MPI_Bcast(X3Inj.data(),NInjs,MPI_DOUBLE,0,MPI_COMM_WORLD);
-  TotalInjs += NInjs;
-  
+  NInjs = X1Inj.size();
 }
 
 
