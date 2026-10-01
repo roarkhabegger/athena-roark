@@ -637,6 +637,85 @@ void Mesh::UserWorkInLoop(void)
   NInjs = X1Inj.size();
 }
 
+void MeshBlock::UserWorkInLoop()
+{
+  if (NInjs == 0) {
+    return;
+  }
+
+  const Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
+  const Real gm1 = peos->GetGamma() - 1;
+
+  for (int m = 0; m < NInjs; ++m) {
+    Real x10 = X1Inj.at(m);
+    Real x20 = X2Inj.at(m);
+    Real x30 = X3Inj.at(m);
+
+    int il = is;
+    int iu = ie;
+    int jl = js;
+    int ju = je;
+    int kl = ks;
+    int ku = ke;
+
+    while (il <= ie && pcoord->x1v(il) < x10 - injL) ++il;
+    while (iu >= is && pcoord->x1v(iu) > x10 + injL) --iu;
+    while (jl <= je && pcoord->x2v(jl) < x20 - injL) ++jl;
+    while (ju >= js && pcoord->x2v(ju) > x20 + injL) --ju;
+    while (kl <= ke && pcoord->x3v(kl) < x30 - injL) ++kl;
+    while (ku >= ks && pcoord->x3v(ku) > x30 + injL) --ku;
+
+    if (il > iu || jl > ju || kl > ku) {
+      continue;
+    }
+
+    for (int k=kl; k<=ku; ++k) {
+      for (int j=jl; j<=ju; ++j) {
+        for (int i=il; i<=iu; ++i) {
+          Real x1 = pcoord->x1v(i);
+          Real x2 = pcoord->x2v(j);
+          Real x3 = pcoord->x3v(k);
+          Real dist = std::sqrt(SQR(x1-x10) + SQR(x2-x20) + SQR(x3-x30));
+
+          if (dist <= injL) {
+            phydro->u(IEN,k,j,i) += Esn_th/SN_Vol;
+            phydro->u(IDN,k,j,i) += Msn/SN_Vol;
+            Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol)
+                                  * phydro->u(IDN,k,j,i));
+
+            if (dist > 0) {
+              phydro->u(IM1,k,j,i) += mom0 * (x1-x10)/dist;
+              phydro->u(IM2,k,j,i) += mom0 * (x2-x20)/dist;
+              phydro->u(IM3,k,j,i) += mom0 * (x3-x30)/dist;
+              phydro->u(IEN,k,j,i) +=
+                  0.5*SQR(mom0)/phydro->u(IDN,k,j,i);
+            }
+
+            // Enforce temperature floor and ceiling
+            if (phydro->u(IDN,k,j,i) > dfloor) {
+              Real d = phydro->u(IDN,k,j,i);
+              Real Ek = 0.5*(SQR(phydro->u(IM1,k,j,i))
+                           + SQR(phydro->u(IM2,k,j,i))
+                           + SQR(phydro->u(IM3,k,j,i))) / d;
+              Real Em = 0.5*(SQR(pfield->bcc(IB1,k,j,i))
+                           + SQR(pfield->bcc(IB2,k,j,i))
+                           + SQR(pfield->bcc(IB3,k,j,i)));
+              Real T = (phydro->u(IEN,k,j,i) - Ek - Em) * gm1 / d;
+              if (T > Tmax_arr(0)/T_scale) {
+                phydro->u(IEN,k,j,i) +=
+                    (Tmax_arr(0)/T_scale - T)*d/gm1;
+              } else if (T < Tlows(0)/T_scale) {
+                phydro->u(IEN,k,j,i) +=
+                    (Tlows(0)/T_scale - T)*d/gm1;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
@@ -740,44 +819,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           }
         }
 
-        // INJECTIONS
-        for (int m = 0 ; m < NInjs; ++m) {
-          Real x10   = X1Inj.at(m);
-          Real x20   = X2Inj.at(m);
-          Real x30   = X3Inj.at(m);
-
-          Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
-          Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
-
-          if (dist <= injL) {
-            cons(IEN,k,j,i) += Esn_th/SN_Vol;
-            cons(IDN,k,j,i) += Msn/SN_Vol;
-            Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol) *(cons(IDN,k,j,i)));
-
-            if (dist > 0){
-              cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
-              cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
-              cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
-              cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
-            } 
-          }
-        }
-        // Final Temperature Check
-        if (cons(IDN,k,j,i) > dfloor) {
-          d = cons(IDN,k,j,i);
-          Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
-          Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
-        
-          Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
-          if (T > Tceil) {
-            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
-          } else if (T < Tfloor) {
-            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
-          }
-        }
-
-
-      
       }
     }
   }
