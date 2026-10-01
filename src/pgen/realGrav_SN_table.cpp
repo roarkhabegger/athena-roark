@@ -95,6 +95,11 @@ const Real T_scale = e_scale/(n_scale*k_B);
 const Real B_scale = 4*PI*sqrt(e_scale);
 const Real lam_scale = e_scale/(n_scale*n_scale*t_scale);
 
+const Real footprints[58] = {1,7,19,   27,   57,   81,  123,  147,  171,  179,  203,  251,  305,  341,
+  365,  389,  461,  587,  619,  739,  799,  847,  895,  925,  949, 1021, 1213, 1237,
+ 1357, 1503, 1551, 1575, 1647, 1743, 1791, 1839, 1863, 1935, 2007, 2103, 2205, 2325,
+ 2373, 2517, 2801, 2945, 3071, 3119, 3191, 3239, 3287, 3407, 3575, 3743, 3791, 3887,
+ 4067, 4139};
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -340,7 +345,22 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   max_dt = pin->GetOrAddReal("problem","max_dt",FLT_MAX);
 
   Real dx = (pin->GetReal("mesh","x1max") - pin->GetReal("mesh","x1min"))/(pin->GetInteger("mesh","nx1"));
-  injL = pin->GetReal("problem","InjL") * dx;
+  Real guessInjL = pin->GetReal("problem","InjL");
+  Real finalInjL = std::pow(3.0 * footprints[0] / (4.0 * PI), 1.0 / 3.0);
+  Real closestDifference = std::abs(finalInjL - guessInjL);
+  for (int Ncells : footprints) {
+    Real trueInjL = std::pow(3.0 * Ncells / (4.0 * PI), 1.0 / 3.0);
+    Real difference = std::abs(trueInjL - guessInjL);
+    if (difference < closestDifference) {
+      finalInjL = trueInjL;
+      closestDifference = difference;
+    }
+  }
+  if (rank == 0) {
+    std::cout << "Initial guess for injection length (in cells): " << guessInjL << std::endl;
+    std::cout << "Final injection length (in cells): " << finalInjL << std::endl;
+  }
+  injL = finalInjL * dx;
 
   Esn_th = pin->GetOrAddReal("problem","Esn_th",0.8) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.2) * 1.0e51/(e_scale*pow(l_scale,3));
