@@ -142,15 +142,15 @@ Real gravity_TIGRESS(Real z) {
   Real g0 = 2*PI*G;
   //Not sure about if scaling stuff is correct
   Real zstar = B * parsec ;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
+  Real full_rho = rho_tigress * (M_sun/pow(parsec,3));
+  return -1 * g0 * (((2*z*l_scale*full_rho)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
   //return gravity_SILCC(z);
 }
 Real potential_TIGRESS(Real z) {
   Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
   Real zstar = B * parsec;
   Real R = E * 1000 * parsec;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
+  Real full_rho = rho_tigress * (M_sun/pow(parsec,3));
   Real rhodm = 2*PI*G* rho_tigress ;
   return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
   //return potential_SILCC(z);
@@ -172,7 +172,7 @@ Real gravity_GALPOT(Real z) {
 }
 Real potential_GALPOT(Real z) {
   Real rh = rh ;
-  Real rho_0 = rho_0 * (M_sun/pow(parsec,3));
+  Real rho_0_cgs = rho_0 * (M_sun/pow(parsec,3));
   Real z_peaks = z_peak * parsec * 1000 ;
   Real gravpin = -1*A*std::tanh((z_peaks/l_scale)/B) - C*std::tanh((z_peaks/l_scale)/D);
   Real int_const_1 = A*B*std::log(std::cosh((-1*z_peaks/l_scale)/B)) + C*D*std::log(std::cosh((-1*z_peaks/l_scale)/D)) ; 
@@ -623,12 +623,14 @@ void Mesh::UserWorkInLoop(void)
     return;
   }
 
-  while (NextInj < InjTimes.size() && InjTimes[NextInj] <= time + dt) {
-    if (InjTimes[NextInj] >= time) {
-      X1Inj.push_back(TableX1Inj[NextInj]);
-      X2Inj.push_back(TableX2Inj[NextInj]);
-      X3Inj.push_back(TableX3Inj[NextInj]);
-    }
+  // Rebase the cursor from the actual simulation time so restarts do not
+  // depend on the cursor state from an earlier run.
+  NextInj = std::lower_bound(InjTimes.begin(), InjTimes.end(), time) - InjTimes.begin();
+
+  while (NextInj < InjTimes.size() && InjTimes[NextInj] < time + dt) {
+    X1Inj.push_back(TableX1Inj[NextInj]);
+    X2Inj.push_back(TableX2Inj[NextInj]);
+    X3Inj.push_back(TableX3Inj[NextInj]);
     ++NextInj;
   }
 
@@ -679,20 +681,20 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         //Scalar Dye Injection
         // Note, conservative s = cons(d) * c and primitive r = c. Primitive ranges from 0-1
         
-        if (NSCALARS > 0) {
-          Real dvx_dx =  (prim(IVX,k,j,i+1) - prim(IVX,k,j,i-1)) / (2.0*dx1);
-          Real dvy_dy =  (prim(IVY,k,j+1,i) - prim(IVY,k,j-1,i)) / (2.0*dx2);
-          Real dvz_dz =  (prim(IVZ,k+1,j,i) - prim(IVZ,k-1,j,i)) / (2.0*dx3);
-          Real div_v = dvx_dx + dvy_dy + dvz_dz;
-          Real G_code = G / (rho_scale/(t_scale*t_scale));
-          Real dens_thresh = (8.86/M_PI) * (p/d) / (G_code *dx1*dx1);
-          Real max_neighbor = std::max({prim(IDN,k,j,i+1), prim(IDN,k,j,i-1), prim(IDN,k,j+1,i), prim(IDN,k,j-1,i), prim(IDN,k+1,j,i), prim(IDN,k-1,j,i)});
-          if ((div_v < 0) && (d > dens_thresh) && (d>1.1*max_neighbor)) {
-            for (int n=0; n<NSCALARS; ++n) {
-              cons_scalar(n,k,j,i) += d * dt* div_v ;
-            }
-          }
-        }
+        // if (NSCALARS > 0) {
+        //   Real dvx_dx =  (prim(IVX,k,j,i+1) - prim(IVX,k,j,i-1)) / (2.0*dx1);
+        //   Real dvy_dy =  (prim(IVY,k,j+1,i) - prim(IVY,k,j-1,i)) / (2.0*dx2);
+        //   Real dvz_dz =  (prim(IVZ,k+1,j,i) - prim(IVZ,k-1,j,i)) / (2.0*dx3);
+        //   Real div_v = dvx_dx + dvy_dy + dvz_dz;
+        //   Real G_code = G / (rho_scale/(t_scale*t_scale));
+        //   Real dens_thresh = (8.86/M_PI) * (p/d) / (G_code *dx1*dx1);
+        //   Real max_neighbor = std::max({prim(IDN,k,j,i+1), prim(IDN,k,j,i-1), prim(IDN,k,j+1,i), prim(IDN,k,j-1,i), prim(IDN,k+1,j,i), prim(IDN,k-1,j,i)});
+        //   if ((div_v < 0) && (d > dens_thresh) && (d>1.1*max_neighbor)) {
+        //     for (int n=0; n<NSCALARS; ++n) {
+        //       cons_scalar(n,k,j,i) += d * dt* div_v ;
+        //     }
+        //   }
+        // }
 
         //COOLING and HEATING
         if ((d> dfloor) && (p> pfloor) ) {
@@ -760,7 +762,9 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             } 
           }
         }
+        // Final Temperature Check
         if (cons(IDN,k,j,i) > dfloor) {
+          d = cons(IDN,k,j,i);
           Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
           Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
         
