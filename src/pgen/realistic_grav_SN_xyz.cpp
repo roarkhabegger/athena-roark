@@ -144,7 +144,7 @@ Real gravity_TIGRESS(Real z) {
   Real g0 = 2*PI*G;
   Real R_0 = R * 1000 * l_scale;
   Real zstar = B * parsec ;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
+  Real rho_tigress = rho_tig * (M_sun/pow(parsec,3));
   return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R_0),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
   //return gravity_SILCC(z);
 }
@@ -152,7 +152,7 @@ Real potential_TIGRESS(Real z) {
   Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
   Real zstar = B * parsec;
   Real R_0 = R * 1000 *l_scale;
-  Real rho_tig = rho_tigress * (M_sun/pow(l_scale,3));
+  Real rho_tigress = rho_tig * (M_sun/pow(l_scale,3));
   Real rhodm = 2*PI*G* rho_tig ;
   return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R_0/l_scale,2)) * std::log(1 + pow(((z*l_scale)/(R_0*l_scale)),2)) / (l_scale / pow(t_scale,2));
   //return potential_SILCC(z);
@@ -395,7 +395,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real LN = LN_arr(0) / (e_scale/t_scale * SQR(n_scale)); 
     Real dt = 1e-3;
     Real Temp0 = pres0/dens0;
-    Real tcool = pow(dens0*gm1 * LN / (Tmax),-1);
+    Real tcool = pow(dens0*gm1 * LN / (Tmax),-1); 
     Real Tnp1 = Yinv( Y(Temp0) + dt / tcool );
     Real cool1 = 1/(gm1) * (Temp0 - Tnp1) / dt;
     Real heat = Heating(0) ;  
@@ -828,8 +828,8 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                             FaceField &b, Real time, Real dt,
                             int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
   for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) { 
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
         if (n==(IPR)) {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
@@ -852,8 +852,8 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
   // zero face-centered magnetic fields 
   if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) {   
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu+1; ++i) {
           b.x1f((kl-k),j,i) =  0.0;
@@ -861,17 +861,8 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
       }
     }
 
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju+1; ++j) {   
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f((kl-k),j,i) =  0.0;
-        }
-      }
-    }
-
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) {   
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
           b.x3f((kl-k),j,i) = 0.0;
@@ -879,7 +870,14 @@ void DiodeInnerX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
       }
     }
 
-    
+    for (int j=jl; j<=ju+1; ++j) {
+      for (int k=1; k<=ngh; ++k) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x2f((kl-k),j,i) =  0.0;
+        }
+      }
+    }
   }
 
   return;
@@ -894,8 +892,8 @@ void DiodeOuterX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
                             FaceField &b, Real time, Real dt,
                             int il, int iu, int jl, int ju, int kl, int ku, int ngh) {
   for (int n=0; n<(NHYDRO); ++n) {
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) {   
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
         if (n==(IPR)) {
 #pragma omp simd
           for (int i=il; i<=iu; ++i) {
@@ -918,8 +916,8 @@ void DiodeOuterX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
 
   // zero face-centered magnetic fields
   if (MAGNETIC_FIELDS_ENABLED) {
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) {
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu+1; ++i) {
           b.x1f((ku+k),j,i) =  0.0;
@@ -927,19 +925,20 @@ void DiodeOuterX3(MeshBlock *pmb, Coordinates *pco, AthenaArray<Real> &prim,
       }
     }
 
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju+1; ++j) {  
-#pragma omp simd
-        for (int i=il; i<=iu; ++i) {
-          b.x2f((ku+k),j,i) =  0.0;
-        }
-      }
-    }
-    for (int k=1; k<=ngh; ++k) {
-      for (int j=jl; j<=ju; ++j) {  
+    for (int j=jl; j<=ju; ++j) {
+      for (int k=1; k<=ngh; ++k) {
 #pragma omp simd
         for (int i=il; i<=iu; ++i) {
           b.x3f((ku+k+1),j,i) = 0.0;
+        }
+      }
+    }
+
+    for (int j=jl; j<=ju+1; ++j) {
+      for (int k=1; k<=ngh; ++k) {
+#pragma omp simd
+        for (int i=il; i<=iu; ++i) {
+          b.x2f((ku+k),j,i) =  0.0;
         }
       }
     }

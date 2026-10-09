@@ -47,7 +47,7 @@
 //======================================================================================
 
 //Gravitational parameters
-Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tigress;
+Real A, B, C, D, E, R, rh, rho_0, z_peak, rho_tig;
 
 //Initial paramters
 Real pres0, dens0, invbeta, angle;
@@ -140,19 +140,19 @@ Real potential_SILCC(Real z) {
 //TIGRESS FUNCTIONS
 Real gravity_TIGRESS(Real z) {
   Real g0 = 2*PI*G;
-  //Not sure about if scaling stuff is correct
+  Real R_0 = R * 1000 * l_scale;
   Real zstar = B * parsec ;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
-  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R*l_scale),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
+  Real rho_tigress = rho_tig * (M_sun/pow(parsec,3));
+  return -1 * g0 * (((2*z*l_scale*rho_tigress)/(1+pow((z*l_scale/R_0),2))) + ((A*(M_sun/pow(parsec,2))*z*l_scale)/(zstar*(pow((1+pow((z*l_scale/zstar),2)), 0.5))))) / (l_scale / pow(t_scale,2));
   //return gravity_SILCC(z);
 }
 Real potential_TIGRESS(Real z) {
   Real g0 = 2*PI*G*A*(M_sun/pow(parsec,2))/(l_scale / pow(t_scale,2));
   Real zstar = B * parsec;
-  Real R = E * 1000 * parsec;
-  Real rho_tigress = rho_tigress * (M_sun/pow(parsec,3));
+  Real R_0 = R * 1000 *l_scale;
+  Real rho_tigress = rho_tig * (M_sun/pow(l_scale,3));
   Real rhodm = 2*PI*G* rho_tigress ;
-  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R*l_scale,2)) * std::log(1 + pow((z*l_scale/R*l_scale),2)) / (l_scale / pow(t_scale,2));
+  return g0*(zstar/l_scale)*(pow((1+pow((z*l_scale/zstar),2)),0.5) - 1) + rhodm * (pow(R_0/l_scale,2)) * std::log(1 + pow(((z*l_scale)/(R_0*l_scale)),2)) / (l_scale / pow(t_scale,2));
   //return potential_SILCC(z);
 }
 
@@ -315,7 +315,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   } else if (Grav_flag == 1) {
     gravity = gravity_TIGRESS;
     potential = potential_TIGRESS;
-    rho_tigress = pin->GetReal("problem", "rho_tigress");
+    rho_tig = pin->GetReal("problem", "rho_tig");
   } else if (Grav_flag == 2) {
     gravity = gravity_GALPOT;
     potential = potential_GALPOT;

@@ -4,15 +4,15 @@ import astropy.constants as c
 
 # input parameters 
 
-nx1 = 100
-x1min = -500 
-x1max = 500 
+nx1 = 128
+x1min = -250 
+x1max = 250
 
-nx2 = 100
-x2min = -500 
-x2max = 500 
+nx2 = 128
+x2min = -250
+x2max = 250 
 
-nx3 = 200
+nx3 = 512
 x3min = -1000
 x3max = 1000
 
@@ -56,7 +56,7 @@ x2pos = (np.floor((np.random.uniform(*x2_lims, N_injs) - x2min) / dx2 + 0.5) + 0
 x3pos = (np.floor((np.random.uniform(*x3_lims, N_injs) - x3min) / dx3 + 0.5) + 0.5) * dx3 + x3min
 injection_table = np.vstack((injTime, x1pos, x2pos, x3pos)).T
 
-np.savetxt("injection_table.txt", injection_table, header="Time[Myr] x1[pc] x2[pc] x3[pc]", fmt="%0.6f")
+np.savetxt("injection_table_250x250x1.txt", injection_table, header="Time[Myr] x1[pc] x2[pc] x3[pc]", fmt="%0.6f")
 
 
 """
