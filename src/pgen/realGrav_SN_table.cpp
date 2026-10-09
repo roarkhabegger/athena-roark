@@ -19,11 +19,11 @@
 #include <cmath>      // sqrt
 #include <fstream>
 #include <iostream>   // endl
+#include <limits>     // numeric_limits
 #include <sstream>    // stringstream
 #include <stdexcept>  // runtime_error
 #include <string>     // c_str()
 #include <cfloat>      // FLT_MAX
-#include <vector> 
 
 // Athena++ headers
 #include "../athena.hpp"
@@ -61,21 +61,15 @@ Real invY(Real T);
 
 
 //Injection information
-std::vector<double> X1Inj = {};
-std::vector<double> X2Inj = {};
-std::vector<double> X3Inj = {};
-std::vector<double> TableX1Inj = {};
-std::vector<double> TableX2Inj = {};
-std::vector<double> TableX3Inj = {};
-std::vector<double> InjTimes = {};
-std::size_t NextInj = 0;
-int NInjs = 0;
-double Esn_th = 0.0;
-double Esn_mom = 0.0;
-double Msn = 0.0;
-double injL = 0.0;
-Real max_dt = FLT_MAX;
-
+int NInjections = 0;
+double Esn_th;
+double Esn_mom;
+double Msn;
+double injL;
+Real max_dt;
+Real eps_floor;
+Real sh_tol;
+Real IsShock(Real rho1, Real v1, Real p1, Real rho2, Real v2, Real p2);
 
 
 // All in cgs units
@@ -95,6 +89,24 @@ const Real T_scale = e_scale/(n_scale*k_B);
 const Real B_scale = 4*PI*sqrt(e_scale);
 const Real lam_scale = e_scale/(n_scale*n_scale*t_scale);
 
+const Real footprints[204] = {
+     1,     7,    19,    27,    57,    81,   123,   147,   171,   179,   203,   251,  
+   305,   341,   365,   389,   461,   587,   619,   739,   799,   847,   895,   925, 
+   949,  1021,  1213,  1237,  1357,  1503,  1551,  1575,  1647,  1743,  1791,  1839,  
+  1863,  1935,  2007,  2103,  2205,  2325,  2373,  2517,  2801,  2945,  3071,  3119,
+  3191,  3239,  3287,  3407,  3575,  3743,  3791,  3887,  4067,  4139,  4385,  4457, 
+  4553,  4625,  4697,  4729,  4801,  4945,  5041,  5137,  5185,  5257,  5449,  5695, 
+  5743,  5887,  6031,  6187,  6235,  6403,  6451,  6619,  6667,  6763,  6859,  6931,
+  6979,  7075,  7123,  7441,  7497,  7689,  7809,  7881,  8217,  8289,  8385,  8601,
+  8709,  8733,  8829,  8925,  9045,  9315,  9435,  9459,  9771,  9795, 10059, 10131,
+ 10251, 10395, 10827, 11067, 11363, 11459, 11513, 11633, 11753, 11981, 12053, 12149,
+ 12533, 13205, 13301, 13397, 13517, 13613, 13805, 13949, 14147, 14243, 14363, 14531,
+ 14771, 14939, 15275, 15515, 15791, 15895, 15967, 16135, 16279, 16375, 16519, 16831,
+ 16879, 17071, 17269, 17365, 17461, 17845, 18325, 18853, 18949, 19093, 19309, 19381,      
+ 21631, 21975, 22119, 22335, 22743, 22983, 23583, 23703, 23847, 24111, 24207, 24573, 
+ 24837, 24885, 25413, 25533, 25677, 26145, 27201, 27369, 27609, 27825, 28017, 28113, 
+ 28353, 28425, 28887, 28991, 29279, 29423, 29711, 29855, 30047, 30095, 30215, 30647, 
+ 31103, 31439, 31799, 31919, 32231, 32423, 32531, 32675, 32795, 32987, 33059, 33371};
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -120,7 +132,13 @@ Real (*gravity)(Real z);
 Real (*potential)(Real z);
 // Return gravitational potential at height z
 
+Real grav_none(Real z) {
 
+  return 0.0;
+}
+Real pot_none(Real z) {
+  return 0.0;
+}
 
 // SILCC FUNCTIONS
 Real gravity_SILCC(Real z) {
@@ -172,7 +190,7 @@ Real gravity_GALPOT(Real z) {
 }
 Real potential_GALPOT(Real z) {
   Real rh = rh ;
-  Real rho_0 = rho_0 * (M_sun/pow(parsec,3));
+  Real rho_0_cgs = rho_0 * (M_sun/pow(parsec,3));
   Real z_peaks = z_peak * parsec * 1000 ;
   Real gravpin = -1*A*std::tanh((z_peaks/l_scale)/B) - C*std::tanh((z_peaks/l_scale)/D);
   Real int_const_1 = A*B*std::log(std::cosh((-1*z_peaks/l_scale)/B)) + C*D*std::log(std::cosh((-1*z_peaks/l_scale)/D)) ; 
@@ -277,6 +295,17 @@ Real Yinv(Real y) {
   return T / T_scale; // return in code units
 }
 
+Real IsShock(Real rho1, Real v1, Real p1, Real rho2, Real v2, Real p2) {
+  if (std::abs(rho2 - rho1) / std::max(rho1,rho2) < 1e-10) {
+    return 0.0;
+  }
+  Real vs = (rho2 * v2 - rho1*v1) / (rho2 - rho1);
+  Real mom1 = rho1 * SQR(v1 - vs) + p1;
+  Real mom2 = rho2 * SQR(v2 - vs) + p2;
+  return std::abs(mom2 - mom1) / std::max(mom1,mom2);
+}
+
+
 Real Heating(Real z){
   Real pos = HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta))) ;
   return std::max(pos, HeatingMin);
@@ -323,7 +352,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     rh = pin->GetReal("problem","rh");
     rho_0 = pin->GetReal("problem","rho_0");
   } else {
-    throw std::runtime_error("### FATAL ERROR in realistic_grav_SN.cpp: Invalid Grav_flag");
+    gravity = grav_none;
+    potential = pot_none;
   }
 
   A = pin->GetOrAddReal("problem","A",30.0); // surface density in Msun/pc^2
@@ -340,11 +370,49 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   max_dt = pin->GetOrAddReal("problem","max_dt",FLT_MAX);
 
   Real dx = (pin->GetReal("mesh","x1max") - pin->GetReal("mesh","x1min"))/(pin->GetInteger("mesh","nx1"));
-  injL = pin->GetReal("problem","InjL") * dx;
+  Real guessInjL = pin->GetReal("problem","InjL");
+  Real finalInjL = std::pow(3.0 * footprints[0] / (4.0 * PI), 1.0 / 3.0);
+  for (int Ncells : footprints) {
+    Real trueInjL = std::pow(3.0 * Ncells / (4.0 * PI), 1.0 / 3.0);
+    if (trueInjL < guessInjL && trueInjL > finalInjL) {
+      finalInjL = trueInjL;
+    }
+  }
+  if (rank == 0) {
+    std::cout << "Initial guess for injection length (in cells): " << guessInjL << std::endl;
+    std::cout << "Final injection length (in cells): " << finalInjL << std::endl;
+  }
+  injL = finalInjL * dx;
+  
+
 
   Esn_th = pin->GetOrAddReal("problem","Esn_th",0.8) * 1.0e51/(e_scale*pow(l_scale,3));
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.2) * 1.0e51/(e_scale*pow(l_scale,3));
   Msn = pin->GetOrAddReal("problem","Msn",1.0) * M_sun/(rho_scale*pow(l_scale,3));
+  eps_floor = pin->GetOrAddReal("problem","eps_floor",FLT_MIN);
+  sh_tol = pin->GetOrAddReal("problem","sh_tol",0.1);
+  const Real SN_Vol = 4.0 * PI / 3.0 * std::pow(injL, 3);
+  if (rank == 0) {
+    std::cout << "Injection radius = " << injL << " code units ("
+              << injL * l_scale / parsec << " pc)" << std::endl;
+    std::cout << "Injection volume = " << SN_Vol << " code-volume units"
+              << std::endl;
+    std::cout << "Injected mass = " << Msn << " code-mass units ("
+              << Msn * rho_scale * std::pow(l_scale, 3) << " g)" << std::endl;
+    std::cout << "Injected thermal energy = " << Esn_th
+              << " code-energy units ("
+              << Esn_th * e_scale * std::pow(l_scale, 3) << " erg)"
+              << std::endl;
+    std::cout << "Injected kinetic energy = " << Esn_mom
+              << " code-energy units ("
+              << Esn_mom * e_scale * std::pow(l_scale, 3) << " erg)"
+              << std::endl;
+
+    
+  }
+
+  
+
   EnrollUserTimeStepFunction(MyTimeStep);
 
   std::string injection_table =
@@ -363,17 +431,30 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     if (!(row >> injection_time >> injection_x1 >> injection_x2 >> injection_x3)) {
       throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Invalid row in " + injection_table);
     }
-    InjTimes.push_back(injection_time);
-    TableX1Inj.push_back(injection_x1 * (parsec / l_scale));
-    TableX2Inj.push_back(injection_x2 * (parsec / l_scale));
-    TableX3Inj.push_back(injection_x3 * (parsec / l_scale));
+    ++NInjections;
+  }
+  AllocateRealUserMeshDataField(4);
+  for (int n = 0; n < 4; ++n) {
+    ruser_mesh_data[n].NewAthenaArray(NInjections);
+  }
+  injection_file.clear();
+  injection_file.seekg(0);
+  int injection_number = 0;
+  while (std::getline(injection_file, line)) {
+    if (line.empty() || line[0] == '#') {
+      continue;
+    }
+    std::stringstream row(line);
+    if (!(row >> injection_time >> injection_x1 >> injection_x2 >> injection_x3)) {
+      throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Invalid row in " + injection_table);
+    }
+    ruser_mesh_data[0](injection_number) = injection_time;
+    ruser_mesh_data[1](injection_number) = injection_x1 * (parsec / l_scale);
+    ruser_mesh_data[2](injection_number) = injection_x2 * (parsec / l_scale);
+    ruser_mesh_data[3](injection_number) = injection_x3 * (parsec / l_scale);
+    ++injection_number;
   }
   injection_file.close();
-  if (InjTimes.size() != TableX1Inj.size() ||
-      InjTimes.size() != TableX2Inj.size() ||
-      InjTimes.size() != TableX3Inj.size()) {
-    throw std::runtime_error("### FATAL ERROR in realGrav_SN_table.cpp: Injection table dimensions do not match");
-  }
 
   
   Tbins = 600;
@@ -473,6 +554,19 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     EnrollUserBoundaryFunction(BoundaryFace::outer_x3, DiodeOuterX3);
   } 
 
+  //Check if Temp_inj will be higher than T_ceil
+
+  if (rank == 0) {
+    Real SN_vol = 4.0 * PI / 3.0 * std::pow(injL, 3);
+    Real rho_tot = dens0 + Msn / SN_vol;
+    Real e_inj = Esn_th / SN_vol;
+    Real T_inj = e_inj / (gm1 * rho_tot );
+    Real Tceil = Tmax_arr(0) / T_scale;
+    if (T_inj > Tceil) {
+      std::cout << "Warning: T_inj (" << T_inj << ") exceeds T_ceil (" << Tceil << ")" << " by a factor " << T_inj / Tceil << std::endl;
+    }
+  }
+
   return;
 }
 
@@ -529,12 +623,12 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         phydro->u(IM3, k, j, i) = 0.0;
         //energy
         if (NON_BAROTROPIC_EOS) {
-            phydro->u(IEN, k, j, i) = pres/gm1;
+          phydro->u(IEN, k, j, i) = pres/gm1
+            + 0.5 * (SQR(phydro->u(IM1, k, j, i))+ SQR(phydro->u(IM2, k, j, i))+ SQR(phydro->u(IM3, k, j, i)))/ phydro->u(IDN, k, j, i);
         }
         if (NSCALARS > 0) {
-          for (int n=0; n<NSCALARS; ++n) {
-            pscalars->s(n,k,j,i) = 0.0;
-          }
+          pscalars->s(0,k,j,i) = 0.0;
+          pscalars->s(1,k,j,i) = 0.0;
         }
       }
     }
@@ -615,24 +709,10 @@ void Mesh::UserWorkAfterLoop(ParameterInput *pin) {
 //----------------------------------------------------------------------------------------
 void Mesh::UserWorkInLoop(void)
 {
-  X1Inj.clear();
-  X2Inj.clear();
-  X3Inj.clear();
-  NInjs = 0;
-  if (dt >= FLT_MAX) {
-    return;
-  }
+}
 
-  while (NextInj < InjTimes.size() && InjTimes[NextInj] <= time + dt) {
-    if (InjTimes[NextInj] >= time) {
-      X1Inj.push_back(TableX1Inj[NextInj]);
-      X2Inj.push_back(TableX2Inj[NextInj]);
-      X3Inj.push_back(TableX3Inj[NextInj]);
-    }
-    ++NextInj;
-  }
-
-  NInjs = X1Inj.size();
+void MeshBlock::UserWorkInLoop()
+{
 }
 
 
@@ -644,7 +724,31 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
   Mesh *pm = pmb->pmy_mesh;
   Real gm1 = pmb->peos->GetGamma() - 1;
-  
+  Real source_start = 0.0;
+  Real source_end = 0.0;
+  const Real time_tolerance = 1.0e-12 * std::max(1.0, std::abs(pm->dt));
+  const bool rk2_final_stage =
+      std::abs(time - (pm->time + pm->dt)) <= time_tolerance &&
+      std::abs(dt - 0.5 * pm->dt) <= time_tolerance;
+  const bool rk3_final_stage =
+      std::abs(time - (pm->time + 0.5 * pm->dt)) <= time_tolerance &&
+      std::abs(dt - (2.0 / 3.0) * pm->dt) <= time_tolerance;
+  if ((rk2_final_stage || rk3_final_stage) && dt > 0.0) {
+    // Apply impulsive events only after the final RK stage averaging.
+    source_start = pm->time;
+    source_end = pm->time + pm->dt;
+  }
+  int first_injection = 0;
+  int last_injection = 0;
+  if (NInjections > 0 && source_end > source_start) {
+    const Real *injection_times = pm->ruser_mesh_data[0].data();
+    first_injection = static_cast<int>(
+        std::lower_bound(injection_times, injection_times + NInjections,
+                         source_start) - injection_times);
+    last_injection = static_cast<int>(
+        std::lower_bound(injection_times, injection_times + NInjections,
+                         source_end) - injection_times);
+  }
 
   // Build Townsend Cooling Functions
   Real Tmax = Tmax_arr(0) / T_scale;
@@ -668,6 +772,39 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         Real dx3 = pmb->pcoord->dx3v(k);
         Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
 
+        // Estimate heat dissipation
+        if (NSCALARS > 0) {
+            // Check both neighboring cells for a shock in each direction.
+            Real x_sh = std::max(
+                IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k,j,i-1), prim(IVX,k,j,i-1), prim(IPR,k,j,i-1)),
+                IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k,j,i+1), prim(IVX,k,j,i+1), prim(IPR,k,j,i+1)));
+            Real y_sh = std::max(
+                IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k,j-1,i), prim(IVY,k,j-1,i), prim(IPR,k,j-1,i)),
+                IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k,j+1,i), prim(IVY,k,j+1,i), prim(IPR,k,j+1,i)));
+            Real z_sh = std::max(
+                IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k-1,j,i), prim(IVZ,k-1,j,i), prim(IPR,k-1,j,i)),
+                IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i),
+                  prim(IDN,k+1,j,i), prim(IVZ,k+1,j,i), prim(IPR,k+1,j,i)));
+          Real is_sh = std::sqrt(SQR(x_sh) + SQR(y_sh) + SQR(z_sh));
+
+          // Calculate dissipated energy
+          Real P_ad = p * pow(cons(IDN,k,j,i)/d,gm1+1);
+          Real ME = 0.5*(bcc(IB1,k,j,i)*bcc(IB1,k,j,i) + bcc(IB2,k,j,i)*bcc(IB2,k,j,i) + bcc(IB3,k,j,i)*bcc(IB3,k,j,i));
+          Real KE = 0.5 * (cons(IM1,k,j,i)*cons(IM1,k,j,i) + cons(IM2,k,j,i)*cons(IM2,k,j,i) + cons(IM3,k,j,i)*cons(IM3,k,j,i)) / cons(IDN,k,j,i);
+          Real Eth = cons(IEN,k,j,i) - KE - ME;
+          Real P_true = gm1*(Eth);
+          Real dS = std::max(P_true - P_ad, 0.0);
+          if ((dS > eps_floor) && (is_sh >= sh_tol)) {
+            cons_scalar(0,k,j,i) += dS/gm1;
+          }
+        }
+
+
         // GRAVITY
         
         Real grav = gravity(x3);
@@ -676,23 +813,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         cons(IM3,k,j,i) += src;
         if (NON_BAROTROPIC_EOS) cons(IEN,k,j,i) += src*prim(IVZ,k,j,i);
         
-        //Scalar Dye Injection
-        // Note, conservative s = cons(d) * c and primitive r = c. Primitive ranges from 0-1
-        
-        if (NSCALARS > 0) {
-          Real dvx_dx =  (prim(IVX,k,j,i+1) - prim(IVX,k,j,i-1)) / (2.0*dx1);
-          Real dvy_dy =  (prim(IVY,k,j+1,i) - prim(IVY,k,j-1,i)) / (2.0*dx2);
-          Real dvz_dz =  (prim(IVZ,k+1,j,i) - prim(IVZ,k-1,j,i)) / (2.0*dx3);
-          Real div_v = dvx_dx + dvy_dy + dvz_dz;
-          Real G_code = G / (rho_scale/(t_scale*t_scale));
-          Real dens_thresh = (8.86/M_PI) * (p/d) / (G_code *dx1*dx1);
-          Real max_neighbor = std::max({prim(IDN,k,j,i+1), prim(IDN,k,j,i-1), prim(IDN,k,j+1,i), prim(IDN,k,j-1,i), prim(IDN,k+1,j,i), prim(IDN,k-1,j,i)});
-          if ((div_v < 0) && (d > dens_thresh) && (d>1.1*max_neighbor)) {
-            for (int n=0; n<NSCALARS; ++n) {
-              cons_scalar(n,k,j,i) += d * dt* div_v ;
-            }
-          }
-        }
 
         //COOLING and HEATING
         if ((d> dfloor) && (p> pfloor) ) {
@@ -735,45 +855,52 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
               T_new = Tceil;
             } 
             cons(IEN,k,j,i) += (T_new - T)*d/(gm1);
+            if (NSCALARS > 0) {
+              cons_scalar(1,k,j,i) += (T_new - T)*d/(gm1);
+            }
           }
         }
 
-        // INJECTIONS
-        for (int m = 0 ; m < NInjs; ++m) {
-          Real x10   = X1Inj.at(m);
-          Real x20   = X2Inj.at(m);
-          Real x30   = X3Inj.at(m);
+        // Apply events that fall within this explicit source interval.
+        if (first_injection < last_injection) {
+          const Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
+          for (int m = first_injection; m < last_injection; ++m) {
+            Real x10 = pm->ruser_mesh_data[1](m);
+            Real x20 = pm->ruser_mesh_data[2](m);
+            Real x30 = pm->ruser_mesh_data[3](m);
+            Real dist = std::sqrt(SQR(x1-x10) + SQR(x2-x20) + SQR(x3-x30));
 
-          Real dist = std::sqrt(SQR(x1-x10) +  SQR(x2-x20) +  SQR(x3-x30));
-          Real SN_Vol = 4*M_PI/3*std::pow(injL,3);
+            if (dist <= injL) {
+              
+              const Real dmass = Msn / SN_Vol;
+              const Real dthermal = Esn_th / SN_Vol;
+              cons(IDN,k,j,i) += dmass;
+              cons(IM1,k,j,i) += dmass * prim(IVX,k,j,i);
+              cons(IM2,k,j,i) += dmass * prim(IVY,k,j,i);
+              cons(IM3,k,j,i) += dmass * prim(IVZ,k,j,i);
+              cons(IEN,k,j,i) += dthermal + 0.5 * dmass * (SQR(prim(IVX,k,j,i)) + SQR(prim(IVY,k,j,i)) + SQR(prim(IVZ,k,j,i)));
 
-          if (dist <= injL) {
-            cons(IEN,k,j,i) += Esn_th/SN_Vol;
-            cons(IDN,k,j,i) += Msn/SN_Vol;
-            Real mom0 = std::sqrt(2*(Esn_mom/SN_Vol) *(cons(IDN,k,j,i)));
+              if ((dist > 0.0) && (Esn_mom > 0.0))  {
+                const Real locDens = prim(IDN,k,j,i) + dmass;
+                const Real dv_max = std::sqrt(
+                    10.0 * Esn_mom / (3.0 * locDens * SN_Vol));
+                const Real dv = dv_max * dist / injL;
+                cons(IM1,k,j,i) += dv*locDens * (x1-x10)/dist;
+                cons(IM2,k,j,i) += dv*locDens * (x2-x20)/dist;
+                cons(IM3,k,j,i) += dv*locDens * (x3-x30)/dist;
+                const Real oldKE = 0.5 * (SQR(prim(IVX,k,j,i)) + SQR(prim(IVY,k,j,i))
+                         + SQR(prim(IVZ,k,j,i))) *  (prim(IDN,k,j,i) + dmass);
 
-            if (dist > 0){
-              cons(IM1,k,j,i) += mom0 * (x1-x10)/dist;
-              cons(IM2,k,j,i) += mom0 * (x2-x20)/dist;
-              cons(IM3,k,j,i) += mom0 * (x3-x30)/dist;
-              cons(IEN,k,j,i) += 0.5*SQR(mom0)/cons(IDN,k,j,i);
-            } 
+                const Real newKE = 0.5 * (SQR( prim(IVX,k,j,i) + dv * (x1-x10)/dist)
+                    + SQR( prim(IVY,k,j,i) + dv* (x2-x20)/dist)
+                    + SQR( prim(IVZ,k,j,i) + dv* (x3-x30)/dist))
+                    * (prim(IDN,k,j,i) + dmass);
+                cons(IEN,k,j,i) += newKE - oldKE;
+              }
+            }
           }
         }
-        if (cons(IDN,k,j,i) > dfloor) {
-          Real Ek = 0.5*(SQR(cons(IM1,k,j,i)) + SQR(cons(IM2,k,j,i)) + SQR(cons(IM3,k,j,i))) / cons(IDN,k,j,i);
-          Real Em = 0.5*(SQR(pmb->pfield->bcc(IB1,k,j,i)) + SQR(pmb->pfield->bcc(IB2,k,j,i)) + SQR(pmb->pfield->bcc(IB3,k,j,i)));
-        
-          Real T = (cons(IEN,k,j,i) - Ek - Em) * gm1 / d;
-          if (T > Tceil) {
-            cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
-          } else if (T < Tfloor) {
-            cons(IEN,k,j,i) += (Tfloor - T)*d/(gm1);
-          }
-        }
 
-
-      
       }
     }
   }
@@ -782,22 +909,27 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 
 Real MyTimeStep(MeshBlock *pmb)
 {
-  // Real min_dt=1e-4;
-
-  // for (int k=pmb->ks; k<=pmb->ke; ++k) {
-  //   for (int j=pmb->js; j<=pmb->je; ++j) {
-  //     for (int i=pmb->is; i<=pmb->ie; ++i) {
-  //       Real dt;
-  //       dt = ... // calculate your own time step here
-  //       min_dt = std::min(min_dt, dt);
-  //     }
-  //   }
-  // }
-  // if (Ninjs >1) {
-  //   return 1e-6;
-  // } else {
-    return max_dt;
-  // }
+  Mesh *pm = pmb->pmy_mesh;
+  Real inj_dt = FLT_MAX;
+  Real t_next = pm->time + pm->dt;
+  const Real *injection_times = pm->ruser_mesh_data[0].data();
+  const int next_injection = static_cast<int>(
+      NInjections > 0 ? std::lower_bound(injection_times, injection_times + NInjections,
+                             t_next) - injection_times : 0);
+  const Real injection_volume = 4.0 * PI / 3.0 * std::pow(injL, 3);
+  if (NInjections > 0 && pm->dt > 0.0 && next_injection < NInjections &&
+      injection_times[next_injection] <= t_next + 2*pm->dt) {
+    const Real gamma = pmb->peos->GetGamma();
+    const Real injection_density = Msn / injection_volume;
+    const Real injection_pressure = (gamma - 1.0) * Esn_th / injection_volume;
+    const Real sound_speed = std::sqrt(gamma * injection_pressure
+                                       / injection_density);
+    const Real ejecta_speed = std::sqrt(2.0 * Esn_mom / Msn);
+    const Real signal_speed = sound_speed + ejecta_speed;
+    const Real dx = pmb->pcoord->dx1v(pmb->is);
+    inj_dt = pm->cfl_number * dx / signal_speed;
+  }
+  return std::min(max_dt, inj_dt);
 }
 
 //----------------------------------------------------------------------------------------
