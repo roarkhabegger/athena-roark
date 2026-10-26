@@ -66,9 +66,12 @@ double Esn_th;
 double Esn_mom;
 double Msn;
 double injL;
+Real inj_moment_correction;
 Real max_dt;
+Real max_CoolAdRatio;
 Real eps_floor;
-Real sh_tol;
+Real comp_tol;
+Real rank_tol;
 Real IsShock(Real rho1, Real v1, Real p1, Real rho2, Real v2, Real p2);
 
 
@@ -89,24 +92,56 @@ const Real T_scale = e_scale/(n_scale*k_B);
 const Real B_scale = 4*PI*sqrt(e_scale);
 const Real lam_scale = e_scale/(n_scale*n_scale*t_scale);
 
-const Real footprints[204] = {
-     1,     7,    19,    27,    57,    81,   123,   147,   171,   179,   203,   251,  
-   305,   341,   365,   389,   461,   587,   619,   739,   799,   847,   895,   925, 
-   949,  1021,  1213,  1237,  1357,  1503,  1551,  1575,  1647,  1743,  1791,  1839,  
-  1863,  1935,  2007,  2103,  2205,  2325,  2373,  2517,  2801,  2945,  3071,  3119,
-  3191,  3239,  3287,  3407,  3575,  3743,  3791,  3887,  4067,  4139,  4385,  4457, 
-  4553,  4625,  4697,  4729,  4801,  4945,  5041,  5137,  5185,  5257,  5449,  5695, 
-  5743,  5887,  6031,  6187,  6235,  6403,  6451,  6619,  6667,  6763,  6859,  6931,
-  6979,  7075,  7123,  7441,  7497,  7689,  7809,  7881,  8217,  8289,  8385,  8601,
-  8709,  8733,  8829,  8925,  9045,  9315,  9435,  9459,  9771,  9795, 10059, 10131,
- 10251, 10395, 10827, 11067, 11363, 11459, 11513, 11633, 11753, 11981, 12053, 12149,
- 12533, 13205, 13301, 13397, 13517, 13613, 13805, 13949, 14147, 14243, 14363, 14531,
- 14771, 14939, 15275, 15515, 15791, 15895, 15967, 16135, 16279, 16375, 16519, 16831,
- 16879, 17071, 17269, 17365, 17461, 17845, 18325, 18853, 18949, 19093, 19309, 19381,      
- 21631, 21975, 22119, 22335, 22743, 22983, 23583, 23703, 23847, 24111, 24207, 24573, 
- 24837, 24885, 25413, 25533, 25677, 26145, 27201, 27369, 27609, 27825, 28017, 28113, 
- 28353, 28425, 28887, 28991, 29279, 29423, 29711, 29855, 30047, 30095, 30215, 30647, 
- 31103, 31439, 31799, 31919, 32231, 32423, 32531, 32675, 32795, 32987, 33059, 33371};
+const int footprints[214] = {
+        1,     7,    19,    27,    57,    81,   123,   147,   171,   179,
+      203,   251,   305,   341,   365,   389,   461,   587,   619,   739,
+      799,   847,   895,   925,   949,  1021,  1213,  1237,  1357,  1503,
+     1551,  1575,  1647,  1743,  1791,  1839,  1863,  1935,  2007,  2103,
+     2205,  2325,  2373,  2517,  2801,  2945,  3071,  3119,  3191,  3239,
+     3287,  3407,  3575,  3743,  3791,  3887,  4067,  4139,  4385,  4457,
+     4553,  4625,  4697,  4729,  4801,  4945,  5041,  5137,  5185,  5257,
+     5449,  5695,  5743,  5887,  6031,  6187,  6235,  6403,  6451,  6619,
+     6667,  6763,  6859,  6931,  6979,  7075,  7123,  7441,  7497,  7689,
+     7809,  7881,  8217,  8289,  8385,  8601,  8709,  8733,  8829,  8925,
+     9045,  9315,  9435,  9459,  9771,  9795, 10059, 10131, 10251, 10395,
+    10827, 11067, 11363, 11459, 11513, 11633, 11753, 11981, 12053, 12149,
+    12533, 13205, 13301, 13397, 13517, 13613, 13805, 13949, 14147, 14243,
+    14363, 14531, 14771, 14939, 15275, 15515, 15791, 15895, 15967, 16135,
+    16279, 16375, 16519, 16831, 16879, 17071, 17269, 17365, 17461, 17845,
+    18325, 18853, 18949, 19093, 19309, 19381, 19549, 19933, 20005, 20197,
+    20341, 20719, 20815, 21079, 21247, 21367, 21631, 21975, 22119, 22335,
+    22743, 22983, 23583, 23703, 23847, 24111, 24207, 24573, 24837, 24885,
+    25413, 25533, 25677, 26145, 27201, 27369, 27609, 27825, 28017, 28113,
+    28353, 28425, 28887, 28991, 29279, 29423, 29711, 29855, 30047, 30095,
+    30215, 30647, 31103, 31439, 31799, 31919, 32231, 32423, 32531, 32675,
+    32795, 32987, 33059, 33371
+};
+const int first_unity_moments[214] = {
+          0,       6,      30,      54,     198,     342,     708,     948,    1212,    1308,
+       1620,    2292,    3204,    3852,    4308,    4788,    6324,    9522,   10386,   13914,
+      15882,   17514,   19194,   20274,   21162,   23898,   31842,   32898,   38346,   45576,
+      48024,   49272,   53088,   58272,   60960,   63696,   65088,   69336,   73728,   79680,
+      86304,   94248,   97512,  107496,  128496,  139632,  149814,  153750,  159726,  163758,
+     167838,  178158,  193086,  208254,  212718,  221742,  239286,  246414,  271278,  278766,
+     288846,  296478,  304182,  307638,  315486,  331326,  342174,  353118,  358638,  366990,
+     389526,  419364,  425268,  443268,  461412,  481524,  487764,  509820,  516204,  538716,
+     545244,  558396,  571644,  581652,  588372,  601908,  608724,  654996,  663228,  691812,
+     709812,  720756,  772452,  783756,  798924,  833676,  851172,  855084,  870828,  886668,
+     906588,  952314,  972834,  976962, 1031082, 1035306, 1082370, 1095330, 1117050, 1143258,
+    1223370, 1268778, 1326138, 1344858, 1355442, 1379082, 1402842, 1448586, 1463130, 1482618,
+    1561530, 1703154, 1723890, 1744722, 1770882, 1791906, 1834338, 1866306, 1910808, 1932504,
+    1959744, 1998168, 2053368, 2092488, 2171304, 2228280, 2294928, 2320200, 2337768, 2378928,
+    2414352, 2438160, 2474016, 2552184, 2564328, 2613096, 2663976, 2688744, 2713608, 2813808,
+    2941248, 3083592, 3109800, 3149256, 3208752, 3228696, 3275400, 3383352, 3403728, 3458448,
+    3499632, 3609078, 3637014, 3714318, 3763710, 3799230, 3877710, 3980814, 4024302, 4090158,
+    4215270, 4289526, 4477878, 4515918, 4561710, 4646430, 4677342, 4795998, 4882062, 4897806,
+    5071974, 5111934, 5160030, 5318166, 5680494, 5739126, 5823126, 5899350, 5967318, 6001398,
+    6086934, 6112710, 6279588, 6317340, 6422412, 6475116, 6581388, 6634668, 6705900, 6723756,
+    6768516, 6930276, 7102524, 7230636, 7369452, 7415892, 7537212, 7612092, 7654428, 7711020,
+    7758300, 7834140, 7862652, 7986756
+};
+
+
 
 void mySource(MeshBlock *pmb, const Real time, const Real dt,
                const AthenaArray<Real> &prim, const AthenaArray<Real> &prim_scalar,
@@ -368,14 +403,18 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   dfloor = pin->GetReal("hydro","dfloor");
 
   max_dt = pin->GetOrAddReal("problem","max_dt",FLT_MAX);
+  max_CoolAdRatio = pin->GetOrAddReal("problem","max_CoolAdRatio",0.1);
 
   Real dx = (pin->GetReal("mesh","x1max") - pin->GetReal("mesh","x1min"))/(pin->GetInteger("mesh","nx1"));
   Real guessInjL = pin->GetReal("problem","InjL");
   Real finalInjL = std::pow(3.0 * footprints[0] / (4.0 * PI), 1.0 / 3.0);
-  for (int Ncells : footprints) {
+  int final_footprint = 0;
+  for (int n = 1; n < 214; ++n) {
+    int Ncells = footprints[n];
     Real trueInjL = std::pow(3.0 * Ncells / (4.0 * PI), 1.0 / 3.0);
     if (trueInjL < guessInjL && trueInjL > finalInjL) {
       finalInjL = trueInjL;
+      final_footprint = n;
     }
   }
   if (rank == 0) {
@@ -383,6 +422,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     std::cout << "Final injection length (in cells): " << finalInjL << std::endl;
   }
   injL = finalInjL * dx;
+  inj_moment_correction = (3.0 / 5.0) * footprints[final_footprint] * SQR(finalInjL)/ first_unity_moments[final_footprint];
   
 
 
@@ -390,7 +430,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   Esn_mom = pin->GetOrAddReal("problem","Esn_mom",0.2) * 1.0e51/(e_scale*pow(l_scale,3));
   Msn = pin->GetOrAddReal("problem","Msn",1.0) * M_sun/(rho_scale*pow(l_scale,3));
   eps_floor = pin->GetOrAddReal("problem","eps_floor",FLT_MIN);
-  sh_tol = pin->GetOrAddReal("problem","sh_tol",0.1);
+  comp_tol = pin->GetOrAddReal("problem","comp_tol",0.1);
+  rank_tol = pin->GetOrAddReal("problem","rank_tol",0.1);
   const Real SN_Vol = 4.0 * PI / 3.0 * std::pow(injL, 3);
   if (rank == 0) {
     std::cout << "Injection radius = " << injL << " code units ("
@@ -629,6 +670,7 @@ void MeshBlock::ProblemGenerator(ParameterInput *pin) {
         if (NSCALARS > 0) {
           pscalars->s(0,k,j,i) = 0.0;
           pscalars->s(1,k,j,i) = 0.0;
+          pscalars->s(2,k,j,i) = 0.0;
         }
       }
     }
@@ -756,7 +798,6 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
   Real Tfloor = Tlows(0) / T_scale; // in code units
   Real Tceil = Tmax_arr(0) / T_scale; // in code units
   
-  
 
   for (int k=pmb->ks; k<=pmb->ke; ++k) {
     for (int j=pmb->js; j<=pmb->je; ++j) {
@@ -773,24 +814,43 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
         Real cellVol = pmb->pcoord->GetCellVolume(k,j,i);
 
         // Estimate heat dissipation
+        Real heat_diss = 0.0;
         if (NSCALARS > 0) {
-            // Check both neighboring cells for a shock in each direction.
-            Real x_sh = std::max(
-                IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k,j,i-1), prim(IVX,k,j,i-1), prim(IPR,k,j,i-1)),
-                IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k,j,i+1), prim(IVX,k,j,i+1), prim(IPR,k,j,i+1)));
-            Real y_sh = std::max(
-                IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k,j-1,i), prim(IVY,k,j-1,i), prim(IPR,k,j-1,i)),
-                IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k,j+1,i), prim(IVY,k,j+1,i), prim(IPR,k,j+1,i)));
-            Real z_sh = std::max(
-                IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k-1,j,i), prim(IVZ,k-1,j,i), prim(IPR,k-1,j,i)),
-                IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i),
-                  prim(IDN,k+1,j,i), prim(IVZ,k+1,j,i), prim(IPR,k+1,j,i)));
-          Real is_sh = std::sqrt(SQR(x_sh) + SQR(y_sh) + SQR(z_sh));
+          cons_scalar(2,k,j,i) = 0.0;
+          // Calculate the Cartesian velocity-gradient tensor at the central cell.
+          const Real dvx_dx = (prim(IVX,k,j,i+1) - prim(IVX,k,j,i-1)) / (2.0*dx1);
+          const Real dvx_dy = (prim(IVX,k,j+1,i) - prim(IVX,k,j-1,i)) / (2.0*dx2);
+          const Real dvx_dz = (prim(IVX,k+1,j,i) - prim(IVX,k-1,j,i)) / (2.0*dx3);
+          const Real dvy_dx = (prim(IVY,k,j,i+1) - prim(IVY,k,j,i-1)) / (2.0*dx1);
+          const Real dvy_dy = (prim(IVY,k,j+1,i) - prim(IVY,k,j-1,i)) / (2.0*dx2);
+          const Real dvy_dz = (prim(IVY,k+1,j,i) - prim(IVY,k-1,j,i)) / (2.0*dx3);
+          const Real dvz_dx = (prim(IVZ,k,j,i+1) - prim(IVZ,k,j,i-1)) / (2.0*dx1);
+          const Real dvz_dy = (prim(IVZ,k,j+1,i) - prim(IVZ,k,j-1,i)) / (2.0*dx2);
+          const Real dvz_dz = (prim(IVZ,k+1,j,i) - prim(IVZ,k-1,j,i)) / (2.0*dx3);
+
+          const Real div_v = dvx_dx + dvy_dy + dvz_dz;
+          const Real strain_sq = SQR(dvx_dx) + SQR(dvy_dy) + SQR(dvz_dz);
+          const Real sxy = 0.5 * (dvx_dy + dvy_dx);
+          const Real sxz = 0.5 * (dvx_dz + dvz_dx);
+          const Real syz = 0.5 * (dvy_dz + dvz_dy);
+          const Real strain_norm_sq = strain_sq +2.0 * (SQR(sxy) + SQR(sxz) + SQR(syz));
+          const Real wxy = 0.5 * (dvx_dy - dvy_dx);
+          const Real wxz = 0.5 * (dvx_dz - dvz_dx);
+          const Real wyz = 0.5 * (dvy_dz - dvz_dy);
+          const Real rot = 2.0 * (SQR(wxy) + SQR(wxz) + SQR(wyz));
+          const Real grad_norm_sq = 3.0 * strain_norm_sq + rot;
+          const Real comp = grad_norm_sq > 0.0 ? SQR(div_v) / grad_norm_sq : 0.0;
+          const Real x_sh = std::max(
+              IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i), prim(IDN,k,j,i-1), prim(IVX,k,j,i-1), prim(IPR,k,j,i-1)),
+              IsShock(prim(IDN,k,j,i), prim(IVX,k,j,i), prim(IPR,k,j,i), prim(IDN,k,j,i+1), prim(IVX,k,j,i+1), prim(IPR,k,j,i+1)));
+          const Real y_sh = std::max(
+              IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i), prim(IDN,k,j-1,i), prim(IVY,k,j-1,i), prim(IPR,k,j-1,i)),
+              IsShock(prim(IDN,k,j,i), prim(IVY,k,j,i), prim(IPR,k,j,i), prim(IDN,k,j+1,i), prim(IVY,k,j+1,i), prim(IPR,k,j+1,i)));
+          const Real z_sh = std::max(
+              IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i), prim(IDN,k-1,j,i), prim(IVZ,k-1,j,i), prim(IPR,k-1,j,i)),
+              IsShock(prim(IDN,k,j,i), prim(IVZ,k,j,i), prim(IPR,k,j,i), prim(IDN,k+1,j,i), prim(IVZ,k+1,j,i), prim(IPR,k+1,j,i)));
+          const Real rank_str = std::sqrt(SQR(x_sh) + SQR(y_sh) + SQR(z_sh));
+          const bool is_sh = (div_v < 0.0 && comp >= comp_tol && rank_str >= rank_tol);
 
           // Calculate dissipated energy
           Real P_ad = p * pow(cons(IDN,k,j,i)/d,gm1+1);
@@ -799,8 +859,9 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
           Real Eth = cons(IEN,k,j,i) - KE - ME;
           Real P_true = gm1*(Eth);
           Real dS = std::max(P_true - P_ad, 0.0);
-          if ((dS > eps_floor) && (is_sh >= sh_tol)) {
+          if ((dS > eps_floor) && is_sh) {
             cons_scalar(0,k,j,i) += dS/gm1;
+            cons_scalar(2,k,j,i) = cons(IDN,k,j,i)/d;
           }
         }
 
@@ -827,7 +888,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             cons(IEN,k,j,i) += (Tceil - T)*d/(gm1);
           } else {
             // get basic temp prediction from operator split
-            Real T_heat = Heating(x3) * d * dt + T;
+            Real T_heat = Heating(x3)*(gm1)* dt + T;
             Real tcool = pow(d*gm1 * LN / (Tmax),-1);
             Real T_cool = Yinv( Y(T) + dt / tcool );
 
@@ -856,7 +917,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
             } 
             cons(IEN,k,j,i) += (T_new - T)*d/(gm1);
             if (NSCALARS > 0) {
-              cons_scalar(1,k,j,i) += (T_new - T)*d/(gm1);
+              cons_scalar(1,k,j,i) += std::max((T-T_new),0.0)*d/(gm1);
             }
           }
         }
@@ -883,7 +944,7 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
               if ((dist > 0.0) && (Esn_mom > 0.0))  {
                 const Real locDens = prim(IDN,k,j,i) + dmass;
                 const Real dv_max = std::sqrt(
-                    10.0 * Esn_mom / (3.0 * locDens * SN_Vol));
+                    10.0 * Esn_mom / (3.0 * locDens * SN_Vol)* inj_moment_correction) ;
                 const Real dv = dv_max * dist / injL;
                 cons(IM1,k,j,i) += dv*locDens * (x1-x10)/dist;
                 cons(IM2,k,j,i) += dv*locDens * (x2-x20)/dist;
@@ -910,6 +971,14 @@ void mySource(MeshBlock *pmb, const Real time, const Real dt,
 Real MyTimeStep(MeshBlock *pmb)
 {
   Mesh *pm = pmb->pmy_mesh;
+  Real Tmax = Tmax_arr(0) / T_scale;
+  Real LN = LN_arr(0) / (e_scale/(t_scale * SQR(n_scale))); 
+  Real Tfloor = Tlows(0) / T_scale; // in code units
+  Real Tceil = Tmax_arr(0) / T_scale; // in code units
+  Real gm1 = pmb->peos->GetGamma() - 1;
+  auto &prim = pmb->phydro->w;
+  
+
   Real inj_dt = FLT_MAX;
   Real t_next = pm->time + pm->dt;
   const Real *injection_times = pm->ruser_mesh_data[0].data();
@@ -928,8 +997,44 @@ Real MyTimeStep(MeshBlock *pmb)
     const Real signal_speed = sound_speed + ejecta_speed;
     const Real dx = pmb->pcoord->dx1v(pmb->is);
     inj_dt = pm->cfl_number * dx / signal_speed;
+  } 
+
+  Real cool_dt = FLT_MAX;
+  Real adiabatic_dt = FLT_MAX;
+  for (int k=pmb->ks; k<=pmb->ke; ++k) {
+    for (int j=pmb->js; j<=pmb->je; ++j) {
+#pragma omp simd
+      for (int i=pmb->is; i<=pmb->ie; ++i) {
+        Real d = prim(IDN,k,j,i);
+        Real p = prim(IPR,k,j,i);
+        Real v = std::sqrt(SQR(prim(IVX,k,j,i)) + SQR(prim(IVY,k,j,i)) + SQR(prim(IVZ,k,j,i)));
+        Real dx = pmb->pcoord->dx1v(i);
+        Real x3 = pmb->pcoord->x3v(k);
+        
+        if ((d> dfloor) && (p> pfloor) ) {
+        // if (d> dfloor)  {
+          Real T = p/d;
+          Real Etherm = p/(gm1);
+          if ((T >Tfloor) && (T < Tceil)) {
+            Real func = std::abs(d*(Heating(x3) - d * lambda(T)));
+            Real dt_cool = Etherm/func;
+            cool_dt = std::min(cool_dt, pm->cfl_number * dt_cool);
+
+          
+            Real c_s = std::sqrt((gm1+1) * p / d);
+            Real dt_ad = dx / (c_s + v);
+            adiabatic_dt = std::min(adiabatic_dt, pm->cfl_number * dt_ad);
+          }
+        }
+      }
+    }
   }
-  return std::min(max_dt, inj_dt);
+  Real ratio = cool_dt / adiabatic_dt;
+  if (ratio < max_CoolAdRatio){
+    return std::min(max_dt, inj_dt);
+  } else {
+    return std::min(max_dt, std::min(inj_dt, cool_dt));
+  }
 }
 
 //----------------------------------------------------------------------------------------
