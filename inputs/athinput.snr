@@ -1,0 +1,89 @@
+<comment>
+problem   = Stratified Box Simulation Simulation with Realistic Gravity Profile
+reference = 
+configure = python3 configure.py --prob=realistic_grav_SN --nghost=4 --eos="adiabatic" --flux=lhlld -b -hdf5 -mpi -h5double 
+
+
+<job>
+problem_id = silcc   # problem ID: basename of output filenames
+
+<output1>
+file_type   = hst         # History data dump
+dcycle          = 1        # time increment between outputs
+
+<output2>
+file_type   = hdf5        # Binary data dump
+variable    = prim       # variables to be output
+dt          = 1e-2
+#dcycle          = 1000       # time increment between outputs
+
+
+
+<time>                    # Time has units of 9.77792222e-01 Myr
+cfl_number   = 0.2       # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim         = -1          # cycle limit
+tlim         = 0.5        # time limit
+integrator   = rk3        # time integration algorithm
+xorder       = 2          # order of spatial reconstruction
+ncycle_out   =  1        # interval for stdout summary info
+
+<mesh>
+nx1         = 256        # Number of zones in X1-direction
+x1min       = -64.0       # minimum value of X1
+x1max       =  64.0       # maximum value of X1 (unit: pc)
+ix1_bc      = outflow    # inner-X1 boundary flag
+ox1_bc      = outflow    # outer-X1 boundary flag
+
+nx2         = 256        # Number of zones in X2-direction
+x2min       = -64.0       # minimum value of X2
+x2max       =  64.0       # maximum value of X2 (unit: pc)
+ix2_bc      = outflow   # inner-X2 boundary flag
+ox2_bc      = outflow   # outer-X2 boundary flag
+
+nx3         = 256         # Number of zones in X3-direction
+x3min       = -64.0       # minimum value of X3
+x3max       =  64.0       # maximum value of X3 (unit: pc)
+ix3_bc      = outflow    # inner-X3 boundary flag
+ox3_bc      = outflow    # outer-X3 boundary flag
+
+
+<meshblock>
+nx1        = 32
+nx2        = 32
+nx3        = 32
+
+<hydro>
+gamma        = 1.66666666666667    # gamma = C_p/C_v
+pfloor       = 1e-7
+dfloor       = 1e-6
+
+
+
+<problem>
+n0         = 1.0      # The density of each pixel (Unit: mH cm^-3)
+T0         = 1e4      # initial Temperature in Kelvin
+invbeta    = 1.0      # inverse of Plasma beta (B^2/(2P))
+angle      = 0.0      # The B-field angle to x-direction
+
+Grav_flag  = -1       # 0  SILCC, 1 TIGRESS, 2 GalPot, anything else no grav
+A          = 30       # First parameter - often Sigma_Star in Msun per pc^2
+B          = 100      # Second parameter - often scale height in pc
+C          = 0        # Third parameter - often Sigma_Star in Msun per pc^2
+D          = 0        # Fourth parameter - often scale height in pc
+E          = 0        # Fifth parameter - 
+R          = 8 
+
+InjectionTable =one_inj.txt # injection_table.txt
+
+InjL       = 10     # box size of each SN injection
+Esn_th     = 0.1      # Injection strength in units of 1e51 erg
+Esn_mom    = 0.9
+Msn        = 10.0
+eps_floor  = 1e-6
+comp_tol     = 0.1
+rank_tol     = 0.1
+
+max_dt     = 1e-2
+MinFactor  = 1.0
+#HeatingRate = 2e-26   #per particle heating rate in ergs/s
+
