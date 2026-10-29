@@ -567,14 +567,14 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
     Real MaxErr = 1e-9;
 
     for (int i=0; i<Tbins; i++) {
-      errT(2*i) = Yinv( Y(Tlows(i)/T_scale) ) - Tlows(i) / T_scale; 
+      errT(2*i) = Yinv( Y(Tlows(i)/T_scale) ) /(Tlows(i) / T_scale)  - 1; 
       Real T = 0.5*(Tlows(i) + Tupps(i))  ;
-      errT(2*i+1) = Yinv( Y(T/T_scale) ) - T/T_scale ;
+      errT(2*i+1) = Yinv( Y(T/T_scale) )/ (T/T_scale ) - 1;
       if ( std::abs(errT(2*i)) > MaxErr ) {
-        std::cout << "i = " << i << " T = " << Tlows(i) << " Yinv(Y(T)) - T = " << errT(2*i) << std::endl;
+        std::cout << "i = " << i << " T = " << Tlows(i) << " Yinv(Y(T))/T - 1 = " << errT(2*i) << std::endl;
       }
       if ( std::abs(errT(2*i+1)) > MaxErr ) {
-        std::cout << "i = " << i << " T = " << T << " Yinv(Y(T)) - T = " << errT(2*i+1) << std::endl;   
+        std::cout << "i = " << i << " T = " << T << " Yinv(Y(T))/T - 1 = " << errT(2*i+1) << std::endl;   
       }
     }
     // std::cout << "Max error in Y and Yinv = " << MaxErr << " at T = " << MaxT << std::endl;
