@@ -999,42 +999,42 @@ Real MyTimeStep(MeshBlock *pmb)
     inj_dt = pm->cfl_number * dx / signal_speed;
   } 
 
-  Real cool_dt = FLT_MAX;
-  Real adiabatic_dt = FLT_MAX;
-  for (int k=pmb->ks; k<=pmb->ke; ++k) {
-    for (int j=pmb->js; j<=pmb->je; ++j) {
-#pragma omp simd
-      for (int i=pmb->is; i<=pmb->ie; ++i) {
-        Real d = prim(IDN,k,j,i);
-        Real p = prim(IPR,k,j,i);
-        Real v = std::sqrt(SQR(prim(IVX,k,j,i)) + SQR(prim(IVY,k,j,i)) + SQR(prim(IVZ,k,j,i)));
-        Real dx = pmb->pcoord->dx1v(i);
-        Real x3 = pmb->pcoord->x3v(k);
+//   Real cool_dt = FLT_MAX;
+//   Real adiabatic_dt = FLT_MAX;
+//   for (int k=pmb->ks; k<=pmb->ke; ++k) {
+//     for (int j=pmb->js; j<=pmb->je; ++j) {
+// #pragma omp simd
+//       for (int i=pmb->is; i<=pmb->ie; ++i) {
+//         Real d = prim(IDN,k,j,i);
+//         Real p = prim(IPR,k,j,i);
+//         Real v = std::sqrt(SQR(prim(IVX,k,j,i)) + SQR(prim(IVY,k,j,i)) + SQR(prim(IVZ,k,j,i)));
+//         Real dx = pmb->pcoord->dx1v(i);
+//         Real x3 = pmb->pcoord->x3v(k);
         
-        if ((d> dfloor) && (p> pfloor) ) {
-        // if (d> dfloor)  {
-          Real T = p/d;
-          Real Etherm = p/(gm1);
-          if ((T >Tfloor) && (T < Tceil)) {
-            Real func = std::abs(d*(Heating(x3) - d * lambda(T)));
-            Real dt_cool = Etherm/func;
-            cool_dt = std::min(cool_dt, pm->cfl_number * dt_cool);
+//         if ((d> dfloor) && (p> pfloor) ) {
+//         // if (d> dfloor)  {
+//           Real T = p/d;
+//           Real Etherm = p/(gm1);
+//           if ((T >Tfloor) && (T < Tceil)) {
+//             Real func = std::abs(d*(Heating(x3) - d * lambda(T)));
+//             Real dt_cool = Etherm/func;
+//             cool_dt = std::min(cool_dt, pm->cfl_number * dt_cool);
 
           
-            Real c_s = std::sqrt((gm1+1) * p / d);
-            Real dt_ad = dx / (c_s + v);
-            adiabatic_dt = std::min(adiabatic_dt, pm->cfl_number * dt_ad);
-          }
-        }
-      }
-    }
-  }
-  Real ratio = cool_dt / adiabatic_dt;
-  if (ratio < max_CoolAdRatio){
-    return std::min(max_dt, inj_dt);
-  } else {
-    return std::min(max_dt, std::min(inj_dt, cool_dt));
-  }
+//             Real c_s = std::sqrt((gm1+1) * p / d);
+//             Real dt_ad = dx / (c_s + v);
+//             adiabatic_dt = std::min(adiabatic_dt, pm->cfl_number * dt_ad);
+//           }
+//         }
+//       }
+//     }
+//   }
+//   Real ratio = cool_dt / adiabatic_dt;
+//   if (ratio < max_CoolAdRatio){
+//     return std::min(max_dt, inj_dt);
+//   } else {
+//     return std::min(max_dt, std::min(inj_dt, cool_dt));
+//   }
 }
 
 //----------------------------------------------------------------------------------------
