@@ -498,7 +498,8 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   injection_file.close();
 
   
-  Tbins = 600;
+  Tbins = pin->GetOrAddInteger("problem", "Tbins", 600);
+  std::string cooling_file = pin->GetOrAddString("problem", "CoolingFile", "cooling.hdf5");
   int start_file[2] = {0, 20};
   int count_fileY[2] = {Tbins + 1, 1};
   int count_fileT[2] = {Tbins, 1};
@@ -551,7 +552,7 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       std::cout << Yks(i) << " " << Lks(i) << " " << aks(i) << std::endl;
     }
     std::cout << "Last 5 Yks, Lks, aks: " << std::endl;
-    for (int i=595; i<600; i++) {
+    for (int i=Tbins-5; i<Tbins; i++) {
       std::cout << Yks(i+1) << " " << Lks(i) << " " << aks(i) << std::endl;
     }
     std::cout << "Tupps and Tlows: " << std::endl;
@@ -559,12 +560,12 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
       std::cout << Tlows(i) << " " << Tupps(i) << std::endl;
     }
     std::cout << "..." << std::endl;
-    for (int i=595; i<600; i++) {
+    for (int i=Tbins-5; i<Tbins; i++) {
       std::cout << Tlows(i) << " " << Tupps(i) << std::endl;
     } 
     AthenaArray<Real> errT;
-    errT.NewAthenaArray(2*Tbins);
-    Real MaxErr = 1e-9;
+    errT.NewAthenaArray(2*Tbins+1);
+    Real MaxErr = 1e-12;
 
     for (int i=0; i<Tbins; i++) {
       errT(2*i) = Yinv( Y(Tlows(i)/T_scale) ) /(Tlows(i) / T_scale)  - 1; 
@@ -998,7 +999,7 @@ Real MyTimeStep(MeshBlock *pmb)
     const Real dx = pmb->pcoord->dx1v(pmb->is);
     inj_dt = pm->cfl_number * dx / signal_speed;
   } 
-
+  return std::min(max_dt, inj_dt);
 //   Real cool_dt = FLT_MAX;
 //   Real adiabatic_dt = FLT_MAX;
 //   for (int k=pmb->ks; k<=pmb->ke; ++k) {
@@ -1029,12 +1030,14 @@ Real MyTimeStep(MeshBlock *pmb)
 //       }
 //     }
 //   }
-//   Real ratio = cool_dt / adiabatic_dt;
-//   if (ratio < max_CoolAdRatio){
-//     return std::min(max_dt, inj_dt);
-//   } else {
-//     return std::min(max_dt, std::min(inj_dt, cool_dt));
-//   }
+  // Real ratio = cool_dt / adiabatic_dt;
+  // if (ratio < max_CoolAdRatio){
+  //   return std::min(max_dt, inj_dt);
+  // } else {
+  //   return std::min(max_dt, std::min(inj_dt, cool_dt));
+  // }
+  
+
 }
 
 //----------------------------------------------------------------------------------------
