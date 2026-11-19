@@ -73,6 +73,7 @@ Real eps_floor;
 Real comp_tol;
 Real rank_tol;
 Real IsShock(Real rho1, Real v1, Real p1, Real rho2, Real v2, Real p2);
+int ShockRefinementCondition(MeshBlock *pmb);
 
 
 // All in cgs units
@@ -340,6 +341,18 @@ Real IsShock(Real rho1, Real v1, Real p1, Real rho2, Real v2, Real p2) {
   return std::abs(mom2 - mom1) / std::max(mom1,mom2);
 }
 
+int ShockRefinementCondition(MeshBlock *pmb) {
+  if (NSCALARS > 2) {
+    for (int k = pmb->ks; k <= pmb->ke; ++k) {
+      for (int j = pmb->js; j <= pmb->je; ++j) {
+        for (int i = pmb->is; i <= pmb->ie; ++i) {
+          if (pmb->pscalars->s(2,k,j,i) != 0.0) return 1;
+        }
+      }
+    }
+  }
+  return -1;
+}
 
 Real Heating(Real z){
   Real pos = HeatingRate * std::exp(-1* (potential(z) - potential(0)) * dens0/(pres0 * (1 + invbeta))) ;
@@ -432,6 +445,9 @@ void Mesh::InitUserMeshData(ParameterInput *pin) {
   eps_floor = pin->GetOrAddReal("problem","eps_floor",FLT_MIN);
   comp_tol = pin->GetOrAddReal("problem","comp_tol",0.1);
   rank_tol = pin->GetOrAddReal("problem","rank_tol",0.1);
+  if (adaptive) {
+    EnrollUserRefinementCondition(ShockRefinementCondition);
+  }
   const Real SN_Vol = 4.0 * PI / 3.0 * std::pow(injL, 3);
   if (rank == 0) {
     std::cout << "Injection radius = " << injL << " code units ("
